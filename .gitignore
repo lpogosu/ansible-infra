@@ -1,0 +1,33 @@
+# Ansible runtime artefacts
+*.retry
+.cache/
+.ansible/
+facts.d/
+
+# Collections installed locally by `make deps`
+collections/ansible_collections/
+
+# Secrets. Only the .example files belong in the repository.
+inventories/*/group_vars/vault.yml
+inventories/*/host_vars/vault.yml
+.vault-password
+*.pem
+*.key
+!**/templates/*.key.j2
+
+# Molecule
+.molecule/
+roles/*/molecule/*/.molecule/
+
+# Python tooling
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
