@@ -1,0 +1,9 @@
+# Tooling used by `make lint`, `make syntax` and `make test`, and by CI.
+# Pinned exactly: a linter that changes its rule set between two runs of the
+# same commit is a linter nobody trusts.
+ansible-core==2.19.12
+ansible-lint==26.8.0
+yamllint==1.38.0
+molecule==26.8.0
+molecule-plugins[docker]==26.7.15
+docker==7.2.0
