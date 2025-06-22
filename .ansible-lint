@@ -1,0 +1,14 @@
+---
+# The `production` profile is the strictest bundled profile: it enforces FQCN,
+# role variable prefixes, explicit file modes and complete role metadata.
+profile: production
+
+exclude_paths:
+  - .cache/
+  - .venv/
+
+# Molecule playbooks live inside each role and must be linted as playbooks,
+# not as generic YAML, so that play-level rules apply to them too.
+kinds:
+  - playbook: "playbooks/*.yml"
+  - playbook: "roles/*/molecule/*/{converge,prepare,verify}.yml"

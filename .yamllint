@@ -1,0 +1,31 @@
+---
+# Shared YAML style for playbooks, inventories, roles and CI definitions.
+# ansible-lint reuses this file, so keep it as the single source of truth.
+extends: default
+
+rules:
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  comments:
+    min-spaces-from-content: 1
+  # ansible-lint requires these three settings verbatim so that its own
+  # embedded yamllint run agrees with a standalone `yamllint .`.
+  comments-indentation: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  line-length:
+    max: 160
+  # GitHub Actions uses the bare key `on:`, which YAML 1.1 reads as boolean true.
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+ignore: |
+  .venv/
+  .cache/
