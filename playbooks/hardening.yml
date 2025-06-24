@@ -1,0 +1,14 @@
+---
+- name: Apply the baseline hardening to every managed host
+  hosts: all
+  become: true
+  gather_facts: true
+  # A hardening change that breaks sshd must not break the whole fleet at
+  # once. One host at a time in a serial batch means the run stops on the
+  # first failure with the rest of the fleet still reachable.
+  serial: "25%"
+  max_fail_percentage: 0
+  roles:
+    - role: baseline
+      tags:
+        - baseline

@@ -1,0 +1,11 @@
+---
+- name: Configure the container hosts
+  hosts: docker_hosts
+  become: true
+  gather_facts: true
+  serial: 1
+  max_fail_percentage: 0
+  roles:
+    - role: docker_host
+      tags:
+        - docker
