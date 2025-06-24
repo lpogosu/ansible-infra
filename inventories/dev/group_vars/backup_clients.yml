@@ -1,0 +1,22 @@
+---
+backup_repository: "s3:https://s3.dev.example.com/backups/{{ inventory_hostname }}"
+backup_password: "{{ vault_backup_password }}"
+backup_environment:
+  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key }}"
+  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key }}"
+
+backup_paths:
+  - /etc
+  - /srv
+  - /var/lib/docker/volumes
+
+# Development keeps a fortnight, production keeps a year; see the prod group.
+backup_retention:
+  last: 2
+  daily: 7
+  weekly: 2
+  monthly: 1
+  yearly: 1
+
+backup_schedule: "*-*-* 03:15:00"
+backup_healthcheck_url: "https://healthchecks.example.com/ping/{{ vault_backup_healthcheck_uuid }}"

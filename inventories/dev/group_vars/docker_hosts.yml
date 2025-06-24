@@ -1,0 +1,15 @@
+---
+docker_host_users:
+  - deploy
+
+docker_host_daemon_config_extra:
+  # The development registry mirror lives inside the same network segment.
+  registry-mirrors:
+    - https://registry-mirror.dev.example.com
+  log-opts:
+    max-size: 20m
+    max-file: "3"
+
+docker_host_prune_schedule: "daily"
+docker_host_prune_until: 48h
+docker_host_prune_volumes: true

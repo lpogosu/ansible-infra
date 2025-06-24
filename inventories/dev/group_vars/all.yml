@@ -1,0 +1,25 @@
+---
+ansible_user: deploy
+ansible_python_interpreter: /usr/bin/python3
+
+# Development hosts are reachable from the office network only, so the SSH
+# policy is the same as production. Nothing here relaxes a control: an
+# environment where the hardening is different is an environment that never
+# catches a hardening regression.
+baseline_sshd_allow_groups:
+  - sudo
+  - wheel
+  - deploy
+
+baseline_chrony_servers:
+  - {address: "0.pool.ntp.org", options: "iburst"}
+  - {address: "1.pool.ntp.org", options: "iburst"}
+
+# Rule changes are still being tuned here, so the audit rule set stays mutable.
+baseline_auditd_immutable: false
+
+# Shorter retention: a dev host does not need a month of journal.
+baseline_journald_system_max_use: 256M
+baseline_journald_max_retention: 7day
+
+node_exporter_listen_address: "0.0.0.0:9100"
