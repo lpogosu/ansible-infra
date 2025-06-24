@@ -1,0 +1,15 @@
+---
+# Copy to vault.yml, fill in real values and encrypt:
+#
+#   cp vault.example.yml vault.yml
+#   ansible-vault encrypt vault.yml
+#
+# vault.yml is gitignored. Every secret referenced by this inventory has to be
+# defined here; the plays fail with an undefined-variable error otherwise,
+# which is the intended behaviour — a silently empty password would create a
+# second, unopenable backup repository.
+vault_haproxy_stats_password: change-me
+vault_backup_password: change-me
+vault_backup_s3_access_key: change-me
+vault_backup_s3_secret_key: change-me
+vault_backup_healthcheck_uuid: 00000000-0000-0000-0000-000000000000

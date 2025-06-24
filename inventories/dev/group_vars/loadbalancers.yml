@@ -1,0 +1,39 @@
+---
+haproxy_frontends:
+  - name: public
+    binds:
+      - address: 192.0.2.11
+        port: 80
+      - address: 192.0.2.11
+        port: 443
+        ssl: true
+        certificate: /etc/haproxy/certs/dev.example.com.pem
+    options:
+      - forwardfor
+    http_requests:
+      - "redirect scheme https code 308 unless { ssl_fc }"
+      - "set-header X-Forwarded-Proto https if { ssl_fc }"
+    default_backend: web_pool
+
+haproxy_backends:
+  - name: web_pool
+    balance: roundrobin
+    health_check:
+      uri: /healthz
+      host: app.dev.example.com
+      expect_status: 200
+    servers:
+      - name: web1
+        address: 192.0.2.21
+        port: 443
+        options: ssl verify none
+      - name: web2
+        address: 192.0.2.22
+        port: 443
+        options: ssl verify none
+
+# Development uses self-signed certificates on the web tier, so the backend
+# connection is encrypted but not verified. Production sets `verify required`
+# with a CA file instead.
+haproxy_stats_user: stats
+haproxy_stats_password: "{{ vault_haproxy_stats_password }}"

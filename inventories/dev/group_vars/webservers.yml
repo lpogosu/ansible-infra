@@ -1,0 +1,34 @@
+---
+nginx_vhosts:
+  - name: app
+    server_name:
+      - app.dev.example.com
+    default_server: true
+    client_max_body_size: 32m
+    access_log: /var/log/nginx/app.access.log
+    error_log: /var/log/nginx/app.error.log
+    tls:
+      enabled: true
+      certificate: /etc/ssl/certs/app.dev.example.com.pem
+      certificate_key: /etc/ssl/private/app.dev.example.com.key
+      redirect_http: true
+      hsts: true
+    upstream:
+      name: app_backend
+      keepalive: 32
+      servers:
+        - address: 192.0.2.31:8080
+          options: max_fails=3 fail_timeout=10s
+    locations:
+      - path: /
+        proxy_pass: http://app_backend
+      - path: /login
+        proxy_pass: http://app_backend
+        limit_req:
+          zone: auth
+          burst: 5
+      - path: /static/
+        alias: /srv/app/static/
+        extra:
+          - "expires 7d;"
+          - "access_log off;"
