@@ -1,0 +1,79 @@
+---
+haproxy_maxconn: 60000
+haproxy_timeouts:
+  connect: 5s
+  client: 60s
+  server: 60s
+  http-request: 10s
+  http-keep-alive: 15s
+  queue: 30s
+  check: 5s
+  tunnel: 1h
+
+haproxy_frontends:
+  - name: public
+    binds:
+      - address: 198.51.100.11
+        port: 80
+      - address: 198.51.100.11
+        port: 443
+        ssl: true
+        certificate: /etc/haproxy/certs/app.example.com.pem
+        alpn: h2,http/1.1
+    options:
+      - forwardfor
+      - httplog
+    acls:
+      - name: is_api
+        criterion: "path_beg /api/"
+    # Order matters: the counter has to be tracked before a rule can read it.
+    http_requests:
+      - "redirect scheme https code 308 unless { ssl_fc }"
+      - "set-header X-Forwarded-Proto https if { ssl_fc }"
+      - "track-sc0 src table web_pool"
+      - "deny deny_status 429 if { sc_http_req_rate(0) gt 600 }"
+    use_backends:
+      - backend: api_pool
+        condition: is_api
+    default_backend: web_pool
+
+haproxy_backends:
+  - name: web_pool
+    balance: roundrobin
+    health_check:
+      uri: /healthz
+      host: app.example.com
+      expect_status: 200
+    extra:
+      - "stick-table type ip size 200k expire 60s store http_req_rate(10s)"
+    servers:
+      - name: web1
+        address: 198.51.100.21
+        port: 443
+        options: ssl verify required ca-file /etc/ssl/certs/internal-ca.pem
+      - name: web2
+        address: 198.51.100.22
+        port: 443
+        options: ssl verify required ca-file /etc/ssl/certs/internal-ca.pem
+      - name: web3
+        address: 198.51.100.23
+        port: 443
+        options: ssl verify required ca-file /etc/ssl/certs/internal-ca.pem
+  - name: api_pool
+    balance: leastconn
+    health_check:
+      uri: /api/healthz
+      host: app.example.com
+      expect_status: 200
+    servers:
+      - name: api1
+        address: 198.51.100.31
+        port: 8080
+        options: maxconn 400
+      - name: api2
+        address: 198.51.100.32
+        port: 8080
+        options: maxconn 400
+
+haproxy_stats_user: stats
+haproxy_stats_password: "{{ vault_haproxy_stats_password }}"

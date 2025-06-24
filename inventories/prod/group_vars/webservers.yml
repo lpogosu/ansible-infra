@@ -1,0 +1,69 @@
+---
+nginx_worker_connections: 8192
+nginx_client_max_body_size: 64m
+
+nginx_limit_req_zones:
+  - name: general
+    key: $binary_remote_addr
+    size: 20m
+    rate: 60r/s
+  - name: auth
+    key: $binary_remote_addr
+    size: 10m
+    rate: 5r/m
+  - name: api
+    key: $binary_remote_addr
+    size: 20m
+    rate: 20r/s
+
+nginx_vhosts:
+  - name: app
+    server_name:
+      - app.example.com
+      - www.app.example.com
+    default_server: true
+    client_max_body_size: 64m
+    access_log: /var/log/nginx/app.access.log
+    error_log: /var/log/nginx/app.error.log
+    tls:
+      enabled: true
+      certificate: /etc/ssl/certs/app.example.com.pem
+      certificate_key: /etc/ssl/private/app.example.com.key
+      trusted_certificate: /etc/ssl/certs/app.example.com.chain.pem
+      redirect_http: true
+      hsts: true
+    upstream:
+      name: app_backend
+      keepalive: 64
+      servers:
+        - address: 198.51.100.31:8080
+          options: max_fails=3 fail_timeout=10s
+        - address: 198.51.100.32:8080
+          options: max_fails=3 fail_timeout=10s
+    locations:
+      - path: /
+        proxy_pass: http://app_backend
+      - path: /api/
+        proxy_pass: http://app_backend
+        limit_req:
+          zone: api
+          burst: 40
+          nodelay: true
+      - path: /login
+        proxy_pass: http://app_backend
+        limit_req:
+          zone: auth
+          burst: 5
+      - path: /static/
+        alias: /srv/app/static/
+        extra:
+          - "expires 30d;"
+          - "access_log off;"
+      - path: /healthz
+        return: "200 \"ok\\n\""
+        # `default_type` rather than `add_header`: any add_header in a location
+        # replaces the inherited set, which would silently drop the security
+        # headers from this response.
+        extra:
+          - "access_log off;"
+          - "default_type text/plain;"
