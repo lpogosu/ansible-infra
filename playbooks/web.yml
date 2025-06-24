@@ -1,0 +1,25 @@
+---
+# The web tier is rolled one host at a time so the load balancer always has a
+# healthy backend. `any_errors_fatal` stops the rollout at the first failure
+# instead of walking the same broken change across the whole pool.
+- name: Configure the web servers
+  hosts: webservers
+  become: true
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - role: nginx
+      tags:
+        - nginx
+
+- name: Configure the load balancers
+  hosts: loadbalancers
+  become: true
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - role: haproxy
+      tags:
+        - haproxy

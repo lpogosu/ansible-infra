@@ -1,0 +1,10 @@
+---
+- name: Install the metrics exporter on every managed host
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: node_exporter
+      tags:
+        - node_exporter
+        - monitoring

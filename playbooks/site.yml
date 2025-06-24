@@ -1,0 +1,18 @@
+---
+# Order is deliberate: hardening first so that a freshly provisioned host is
+# locked down before anything listens on a port; monitoring last so the
+# exporter comes up on a host that is already in its final state.
+- name: Baseline hardening
+  ansible.builtin.import_playbook: hardening.yml
+
+- name: Container hosts
+  ansible.builtin.import_playbook: docker-hosts.yml
+
+- name: Web and load balancing tier
+  ansible.builtin.import_playbook: web.yml
+
+- name: Scheduled backups
+  ansible.builtin.import_playbook: backup.yml
+
+- name: Metrics exporters
+  ansible.builtin.import_playbook: monitoring.yml
