@@ -1,0 +1,123 @@
+---
+# ---------------------------------------------------------------------------
+# restic binary.
+# Upstream publishes a single static binary compressed with bzip2 and a
+# SHA256SUMS file next to it; the digests below are taken from that file.
+# ---------------------------------------------------------------------------
+backup_restic_version: "0.19.1"
+backup_restic_checksums:
+  amd64: f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+  arm64: a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
+backup_restic_architecture_map:
+  x86_64: amd64
+  aarch64: arm64
+backup_restic_architecture: "{{ backup_restic_architecture_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+backup_restic_release_name: "restic_{{ backup_restic_version }}_linux_{{ backup_restic_architecture }}"
+backup_restic_download_url: >-
+  https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}/{{ backup_restic_release_name }}.bz2
+backup_restic_archive_dir: /usr/local/src
+backup_restic_release_dir: /opt/restic
+backup_restic_binary_path: /usr/local/bin/restic
+
+# ---------------------------------------------------------------------------
+# Repository.
+#
+# `backup_repository` and `backup_password` have no usable defaults and the
+# role refuses to run without them. Keep the password in Ansible Vault: it is
+# the only thing standing between the repository and its contents.
+#
+# Examples:
+#   backup_repository: "s3:https://s3.example.com/backups/{{ inventory_hostname }}"
+#   backup_repository: "sftp:backup@backup.example.com:/srv/restic/{{ inventory_hostname }}"
+#   backup_repository: "/srv/backup/restic"
+# ---------------------------------------------------------------------------
+backup_repository: ""
+backup_password: ""
+backup_config_dir: /etc/restic
+backup_password_file: /etc/restic/repository.password
+backup_env_file: /etc/restic/backup.env
+# Extra environment for the backend, e.g. AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+# or RESTIC_COMPRESSION. Written to backup_env_file with mode 0600.
+backup_environment: {}
+backup_init_repository: true
+
+# ---------------------------------------------------------------------------
+# What gets backed up.
+# ---------------------------------------------------------------------------
+backup_paths: []
+backup_exclude_file: /etc/restic/excludes.txt
+backup_excludes:
+  - /dev
+  - /proc
+  - /sys
+  - /run
+  - /tmp
+  - /var/tmp
+  - /var/cache
+  - /var/lib/docker
+  - /swapfile
+  - "*.pyc"
+  - "**/.cache"
+  - "**/node_modules"
+# `--one-file-system` keeps a bind-mounted network share or a container
+# overlay from being pulled into the snapshot by accident.
+backup_one_file_system: true
+backup_tags:
+  - ansible
+backup_extra_backup_args: []
+
+# ---------------------------------------------------------------------------
+# Retention.
+# `forget` without `--prune` only removes snapshot references; the data stays.
+# Pruning is what reclaims space, and it is the expensive half.
+# ---------------------------------------------------------------------------
+backup_retention:
+  last: 3
+  daily: 7
+  weekly: 4
+  monthly: 6
+  yearly: 1
+backup_prune: true
+backup_forget_extra_args: []
+
+# Repository verification. A full `--read-data` re-downloads everything, which
+# is why only a subset is read on each run.
+backup_check_enabled: true
+backup_check_read_data_subset: "5%"
+
+# ---------------------------------------------------------------------------
+# Hooks. Run inside the wrapper script, with the same `set -e` semantics as
+# the rest of it: a failing pre-command aborts the backup instead of quietly
+# snapshotting an inconsistent database dump.
+# ---------------------------------------------------------------------------
+backup_pre_commands: []
+backup_post_commands: []
+
+# ---------------------------------------------------------------------------
+# Healthcheck ping (healthchecks.io or a self-hosted equivalent).
+# The wrapper pings /start before the run, the bare URL on success and /fail
+# with the exit code and the tail of the log on failure.
+# ---------------------------------------------------------------------------
+backup_healthcheck_url: ""
+backup_healthcheck_timeout: 10
+
+# ---------------------------------------------------------------------------
+# Schedule and resource limits.
+# ---------------------------------------------------------------------------
+backup_schedule: "*-*-* 02:30:00"
+backup_randomized_delay: 3600
+backup_persistent: true
+backup_nice: 10
+backup_io_scheduling_class: idle
+backup_limit_upload_kib: 0
+backup_limit_download_kib: 0
+backup_timeout_sec: 14400
+
+# ---------------------------------------------------------------------------
+# Logging.
+# ---------------------------------------------------------------------------
+backup_log_file: /var/log/restic-backup.log
+backup_manage_logrotate: true
+backup_logrotate_rotate: 14
+backup_logrotate_compress: true
+backup_logrotate_frequency: weekly
