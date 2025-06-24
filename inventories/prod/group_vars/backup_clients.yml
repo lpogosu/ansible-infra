@@ -1,0 +1,33 @@
+---
+backup_repository: "s3:https://s3.example.com/backups/{{ inventory_hostname }}"
+backup_password: "{{ vault_backup_password }}"
+backup_environment:
+  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key }}"
+  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key }}"
+  # restic 0.14+ compresses before encrypting; `auto` is a good default for
+  # mixed content and costs little CPU.
+  RESTIC_COMPRESSION: auto
+
+backup_paths:
+  - /etc
+  - /srv
+  - /var/lib/docker/volumes
+
+backup_retention:
+  last: 3
+  daily: 14
+  weekly: 8
+  monthly: 12
+  yearly: 3
+
+backup_schedule: "*-*-* 02:30:00"
+backup_randomized_delay: 5400
+backup_limit_upload_kib: 20480
+backup_healthcheck_url: "https://healthchecks.example.com/ping/{{ vault_backup_healthcheck_uuid }}"
+
+# Quiesce the database before the snapshot and release it afterwards, so the
+# backup is consistent rather than merely recent.
+backup_pre_commands:
+  - "/usr/local/sbin/app-maintenance --enter"
+backup_post_commands:
+  - "/usr/local/sbin/app-maintenance --leave"

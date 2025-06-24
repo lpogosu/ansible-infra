@@ -1,0 +1,29 @@
+---
+ansible_user: deploy
+ansible_python_interpreter: /usr/bin/python3
+
+baseline_sshd_allow_groups:
+  - sudo
+  - wheel
+  - deploy
+
+# Internal stratum-2 servers; the public pool is not reachable from production.
+baseline_chrony_servers:
+  - {address: "ntp-01.example.com", options: "iburst"}
+  - {address: "ntp-02.example.com", options: "iburst"}
+
+# The rule set is settled here, so it is locked until reboot.
+baseline_auditd_immutable: true
+baseline_auditd_admin_space_left_action: halt
+
+baseline_journald_system_max_use: 1G
+baseline_journald_max_retention: 30day
+
+# Security updates are installed automatically, reboots are not: the reboot
+# window belongs to the change process.
+baseline_auto_updates_apply_updates: true
+baseline_auto_updates_reboot: false
+baseline_auto_updates_mail_to: ops@example.com
+
+# Prometheus scrapes across the management network.
+node_exporter_listen_address: "0.0.0.0:9100"

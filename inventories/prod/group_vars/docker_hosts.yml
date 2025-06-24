@@ -1,0 +1,19 @@
+---
+docker_host_users:
+  - deploy
+
+docker_host_daemon_config_extra:
+  registry-mirrors:
+    - https://registry-mirror.example.com
+  log-opts:
+    max-size: 100m
+    max-file: "5"
+  # Production hosts run one workload each; a wider pool avoids renumbering
+  # when a compose stack creates a dozen networks.
+  default-address-pools:
+    - base: 10.202.0.0/15
+      size: 24
+
+docker_host_prune_schedule: "Sun 03:20"
+docker_host_prune_until: 336h
+docker_host_prune_volumes: false
