@@ -1,0 +1,76 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: backup-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  - name: backup-rocky9
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  # Scenarios live inside the role they exercise, so ansible starts from
+  # roles/<name>/molecule/default and never sees the repository's ansible.cfg.
+  # MOLECULE_PROJECT_DIRECTORY is the role directory; its parent is roles/.
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+  inventory:
+    group_vars:
+      all:
+        # A local repository keeps the scenario self-contained; the code path
+        # is identical for s3:, sftp: and rest: backends.
+        backup_repository: /srv/restic-repository
+        backup_password: molecule-not-a-real-secret
+        backup_paths:
+          - /etc/restic
+          - /srv/backup-source
+        backup_retention:
+          last: 2
+          daily: 3
+          weekly: 1
+          monthly: 1
+          yearly: 1
+        backup_check_read_data_subset: "100%"
+        backup_pre_commands:
+          - "printf 'pre-hook ran\\n' > /srv/backup-source/hook.txt"
+        backup_post_commands:
+          - "rm -f /srv/backup-source/hook.txt"
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy

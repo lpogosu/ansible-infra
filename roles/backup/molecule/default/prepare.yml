@@ -1,0 +1,34 @@
+---
+- name: Prepare
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    # The base images ship without an apt index, so the first `package` task
+    # would fail with "No package matching ... is available". Refreshing here
+    # covers the role's own installs during converge as well.
+    - name: Refresh the apt cache on Debian-family hosts
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      changed_when: false
+
+    - name: Create the directory that will be backed up
+      ansible.builtin.file:
+        path: /srv/backup-source
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Put a known file into it
+      ansible.builtin.copy:
+        content: "molecule fixture\n"
+        dest: /srv/backup-source/fixture.txt
+        owner: root
+        group: root
+        mode: "0644"
