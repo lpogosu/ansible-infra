@@ -1,0 +1,168 @@
+---
+- name: Verify
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  vars:
+    backup_verify_environment:
+      RESTIC_REPOSITORY: /srv/restic-repository
+      RESTIC_PASSWORD_FILE: /etc/restic/repository.password
+  tasks:
+    - name: Stat the files the role installs
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: backup_verify_files
+      loop:
+        - /usr/local/sbin/restic-backup
+        - /etc/restic/repository.password
+        - /etc/restic/backup.env
+        - /etc/restic/excludes.txt
+        - /etc/systemd/system/restic-backup.service
+        - /etc/systemd/system/restic-backup.timer
+        - /etc/logrotate.d/restic-backup
+        - /etc/systemd/system/timers.target.wants/restic-backup.timer
+
+    - name: Assert that every managed file exists
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: "{{ item.item }} was not installed"
+      loop: "{{ backup_verify_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Assert that the secrets are not readable by anyone but root
+      ansible.builtin.assert:
+        that:
+          - backup_verify_files.results[1].stat.mode == '0600'
+          - backup_verify_files.results[2].stat.mode == '0600'
+          - backup_verify_files.results[0].stat.mode == '0750'
+        fail_msg: "the repository password or backend environment file is too permissive"
+
+    - name: Assert that the repository was initialised and the password decrypts it
+      ansible.builtin.command:
+        cmd: /usr/local/bin/restic cat config
+      environment: "{{ backup_verify_environment }}"
+      changed_when: false
+
+    # Running the unit is the only way to test the wrapper end to end: hooks,
+    # exclude file, retention flags and the exit-code path all live in it.
+    #
+    # The rescue exists because systemd's own failure message says only that the
+    # control process exited with an error. Without the journal, diagnosing this
+    # means reproducing the whole scenario by hand just to read one line.
+    - name: Run the backup unit
+      block:
+        - name: Start the backup unit
+          ansible.builtin.systemd_service:
+            name: restic-backup.service
+            state: started
+      rescue:
+        - name: Read the unit's journal
+          ansible.builtin.command:
+            cmd: journalctl -u restic-backup.service --no-pager -n 60
+          changed_when: false
+          failed_when: false
+          register: backup_verify_journal
+
+        - name: Fail with the journal attached
+          ansible.builtin.fail:
+            msg: |
+              restic-backup.service did not run. Journal:
+              {{ backup_verify_journal.stdout }}
+
+    - name: Read the snapshot list
+      ansible.builtin.command:
+        cmd: /usr/local/bin/restic snapshots --json --tag ansible
+      environment: "{{ backup_verify_environment }}"
+      changed_when: false
+      register: backup_verify_snapshots
+
+    - name: Assert that exactly one tagged snapshot was created
+      ansible.builtin.assert:
+        that:
+          - (backup_verify_snapshots.stdout | from_json) | length == 1
+          - "'/srv/backup-source' in (backup_verify_snapshots.stdout | from_json)[0]['paths']"
+          - "'ansible' in (backup_verify_snapshots.stdout | from_json)[0]['tags']"
+        fail_msg: "the snapshot list does not match the configured paths and tags"
+
+    - name: Restore the latest snapshot to a scratch directory
+      ansible.builtin.command:
+        cmd: /usr/local/bin/restic restore latest --target /tmp/restic-verify
+      environment: "{{ backup_verify_environment }}"
+      changed_when: false
+
+    - name: Read the restored fixture and the file written by the pre-backup hook
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      register: backup_verify_restored
+      loop:
+        - /tmp/restic-verify/srv/backup-source/fixture.txt
+        - /tmp/restic-verify/srv/backup-source/hook.txt
+
+    - name: Stat the hook file on the live filesystem
+      ansible.builtin.stat:
+        path: /srv/backup-source/hook.txt
+      register: backup_verify_hook_live
+
+    # The hook file is created before the snapshot and deleted after it, so its
+    # presence in the restore and absence on disk proves both hooks ran, in the
+    # right order, inside the same run.
+    - name: Assert that the restore matches the source and both hooks ran
+      ansible.builtin.assert:
+        that:
+          - backup_verify_restored.results[0].stat.exists
+          - backup_verify_restored.results[0].stat.checksum == backup_verify_fixture_sha256
+          - backup_verify_restored.results[1].stat.exists
+          - not backup_verify_hook_live.stat.exists
+        fail_msg: "the restored tree does not prove a correct backup and hook sequence"
+      vars:
+        backup_verify_fixture_sha256: "{{ 'molecule fixture\n' | hash('sha256') }}"
+
+    - name: Read the exclude file
+      ansible.builtin.slurp:
+        src: /etc/restic/excludes.txt
+      register: backup_verify_excludes
+
+    - name: Assert that the exclude list carries the pseudo-filesystems
+      ansible.builtin.assert:
+        that:
+          - (backup_verify_excludes.content | b64decode) is search('(?m)^/proc$')
+          - (backup_verify_excludes.content | b64decode) is search('(?m)^/sys$')
+          - (backup_verify_excludes.content | b64decode) is search('(?m)^/var/lib/docker$')
+        fail_msg: "the exclude file does not contain the expected patterns"
+
+    - name: Ask logrotate to parse its drop-in
+      ansible.builtin.command:
+        cmd: /usr/sbin/logrotate --debug /etc/logrotate.d/restic-backup
+      changed_when: false
+      register: backup_verify_logrotate
+
+    # `logrotate --debug` writes its trace to stderr, not stdout, so asserting on
+    # stdout checks an empty string and fails on a configuration that is fine.
+    - name: Assert that logrotate accepts the configuration
+      ansible.builtin.assert:
+        that:
+          - _backup_logrotate_output is search('/var/log/restic-backup.log')
+          - _backup_logrotate_output is search('rotating pattern')
+        fail_msg: "logrotate did not accept the drop-in: {{ _backup_logrotate_output }}"
+      vars:
+        _backup_logrotate_output: >-
+          {{ backup_verify_logrotate.stdout ~ backup_verify_logrotate.stderr }}
+
+    - name: Read the timer definition from systemd
+      ansible.builtin.systemd_service:
+        name: restic-backup.timer
+      register: backup_verify_timer
+      check_mode: true
+
+    - name: Assert that the timer is active and enabled
+      ansible.builtin.assert:
+        that:
+          - backup_verify_timer.status['ActiveState'] == 'active'
+          - backup_verify_timer.status['UnitFileState'] == 'enabled'
+        fail_msg: "the backup timer is not scheduled"
