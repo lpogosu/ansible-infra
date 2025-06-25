@@ -1,0 +1,16 @@
+---
+- name: Install logrotate
+  ansible.builtin.package:
+    name: logrotate
+    state: present
+
+- name: Configure rotation of the backup log
+  ansible.builtin.template:
+    src: logrotate-restic-backup.j2
+    dest: "{{ backup_logrotate_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+    # logrotate refuses to run at all when one config file is malformed, so a
+    # broken drop-in would silently stop rotating every other log on the host.
+    validate: /usr/sbin/logrotate --debug %s

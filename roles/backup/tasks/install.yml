@@ -1,0 +1,72 @@
+---
+- name: Install the tools the wrapper script relies on
+  ansible.builtin.package:
+    name: "{{ backup_helper_packages }}"
+    state: present
+
+- name: Create the download and release directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ backup_restic_archive_dir }}"
+    - "{{ backup_restic_release_dir }}"
+
+- name: Download the pinned restic release
+  ansible.builtin.get_url:
+    url: "{{ backup_restic_download_url }}"
+    dest: "{{ backup_restic_archive_dir }}/{{ backup_restic_release_name }}.bz2"
+    checksum: "sha256:{{ backup_restic_checksums[backup_restic_architecture] }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# restic publishes a bare bzip2-compressed binary rather than an archive, so
+# `unarchive` does not apply. Decompressing to a `.part` file and renaming it
+# means an interrupted run never leaves a truncated binary that the `creates`
+# guard would then treat as finished.
+- name: Decompress the release into its versioned path
+  ansible.builtin.shell:
+    cmd: >-
+      bunzip2 --keep --stdout '{{ _backup_restic_archive }}' > '{{ _backup_restic_versioned }}.part'
+      && mv '{{ _backup_restic_versioned }}.part' '{{ _backup_restic_versioned }}'
+    creates: "{{ _backup_restic_versioned }}"
+  vars:
+    _backup_restic_archive: "{{ backup_restic_archive_dir }}/{{ backup_restic_release_name }}.bz2"
+    _backup_restic_versioned: "{{ backup_restic_release_dir }}/{{ backup_restic_release_name }}"
+  # No `changed_when` here: it would override the `creates` guard. With the guard
+  # alone the module runs and reports changed the first time, then skips and
+  # reports ok — which is what makes a second run of this role a no-op.
+
+- name: Make the versioned binary executable
+  ansible.builtin.file:
+    path: "{{ backup_restic_release_dir }}/{{ backup_restic_release_name }}"
+    owner: root
+    group: root
+    mode: "0755"
+    state: file
+
+- name: Install the binary
+  ansible.builtin.copy:
+    src: "{{ backup_restic_release_dir }}/{{ backup_restic_release_name }}"
+    dest: "{{ backup_restic_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Read the version of the installed binary
+  ansible.builtin.command:
+    cmd: "{{ backup_restic_binary_path }} version"
+  changed_when: false
+  register: _backup_restic_version
+
+- name: Assert that the installed restic is the pinned one
+  ansible.builtin.assert:
+    that:
+      - _backup_restic_version.stdout is search('restic ' ~ backup_restic_version)
+    fail_msg: "installed restic reports: {{ _backup_restic_version.stdout }}"
+    quiet: true

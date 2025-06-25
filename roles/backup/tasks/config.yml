@@ -1,0 +1,37 @@
+---
+- name: Create the restic configuration directory
+  ansible.builtin.file:
+    path: "{{ backup_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# The repository password is passed through a file rather than an environment
+# variable so it never shows up in `ps` output or in a systemd unit's
+# Environment= line, both of which are world-readable.
+- name: Write the repository password file
+  ansible.builtin.copy:
+    content: "{{ backup_password }}\n"
+    dest: "{{ backup_password_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Write the backend environment file
+  ansible.builtin.template:
+    src: backup.env.j2
+    dest: "{{ backup_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Write the exclude list
+  ansible.builtin.template:
+    src: excludes.txt.j2
+    dest: "{{ backup_exclude_file }}"
+    owner: root
+    group: root
+    mode: "0644"
