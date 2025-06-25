@@ -1,0 +1,46 @@
+---
+- name: Verify that the role has everything it needs
+  ansible.builtin.assert:
+    that:
+      - backup_repository | length > 0
+      - backup_password | length > 0
+      - backup_paths | length > 0
+      - backup_restic_architecture in backup_restic_checksums
+    fail_msg: >-
+      backup_repository, backup_password and backup_paths are required, and a
+      published checksum must exist for {{ backup_restic_architecture }}.
+    quiet: true
+  tags:
+    - always
+
+- name: Install the restic binary
+  ansible.builtin.include_tasks: install.yml
+  tags:
+    - backup
+    - backup-install
+
+- name: Write the repository credentials and exclude list
+  ansible.builtin.include_tasks: config.yml
+  tags:
+    - backup
+    - backup-config
+
+- name: Initialise the repository
+  ansible.builtin.include_tasks: repository.yml
+  when: backup_init_repository | bool
+  tags:
+    - backup
+    - backup-repository
+
+- name: Install the wrapper, unit and timer
+  ansible.builtin.include_tasks: schedule.yml
+  tags:
+    - backup
+    - backup-schedule
+
+- name: Configure log rotation
+  ansible.builtin.include_tasks: logrotate.yml
+  when: backup_manage_logrotate | bool
+  tags:
+    - backup
+    - backup-logrotate

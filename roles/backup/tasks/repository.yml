@@ -1,0 +1,21 @@
+---
+# `restic init` on an existing repository is an error, not a no-op, so the
+# repository is probed first. `cat config` is the cheapest call that proves
+# both that the repository exists and that the password decrypts it.
+- name: Check whether the repository already exists
+  ansible.builtin.command:
+    cmd: "{{ backup_restic_binary_path }} cat config"
+  environment: "{{ _backup_restic_environment }}"
+  changed_when: false
+  failed_when: false
+  register: _backup_repository_probe
+
+# A wrong password fails the probe too. `init` then fails with "config file
+# already exists", which is the right outcome: the run stops instead of
+# silently creating a second repository beside the real one.
+- name: Initialise the repository
+  ansible.builtin.command:
+    cmd: "{{ backup_restic_binary_path }} init"
+  environment: "{{ _backup_restic_environment }}"
+  when: _backup_repository_probe.rc != 0
+  changed_when: true
