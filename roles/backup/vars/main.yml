@@ -1,0 +1,24 @@
+---
+# bzip2 unpacks the release, curl sends the healthcheck pings, ca-certificates
+# lets both of them verify TLS.
+backup_helper_packages_common:
+  - bzip2
+  - ca-certificates
+
+# `curl` is added on Debian only. RHEL 9 ships curl-minimal, which already
+# provides /usr/bin/curl and conflicts with the full curl package, so asking
+# for it makes dnf fail to depsolve on a minimal install rather than upgrade.
+backup_helper_packages: >-
+  {{ backup_helper_packages_common
+     + (['curl'] if ansible_facts['os_family'] == 'Debian' else []) }}
+backup_service_name: restic-backup
+backup_logrotate_config: /etc/logrotate.d/restic-backup
+backup_wrapper_path: /usr/local/sbin/restic-backup
+
+# Environment used by the repository tasks. The password is referenced by file
+# so that it never appears in the process environment of a command Ansible
+# runs, and the backend variables are merged in for S3, B2 and friends.
+_backup_restic_environment: "{{ backup_environment | combine(_backup_restic_core_environment) }}"
+_backup_restic_core_environment:
+  RESTIC_REPOSITORY: "{{ backup_repository }}"
+  RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
