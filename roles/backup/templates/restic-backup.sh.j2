@@ -1,0 +1,140 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Backup wrapper for restic. Invoked by {{ backup_service_name }}.service.
+#
+# Exit codes:
+#   0  backup, forget and check all succeeded
+#   1  a step failed; the healthcheck endpoint has been told, and the reason is
+#      in {{ backup_log_file }} as well as in the journal
+
+set -Eeuo pipefail
+
+readonly RESTIC={{ backup_restic_binary_path | quote }}
+# systemd exports CACHE_DIRECTORY from the unit's CacheDirectory=. The
+# fallback keeps a manual run outside systemd working the same way.
+export RESTIC_CACHE_DIR="${CACHE_DIRECTORY:-/var/cache/{{ backup_service_name }}}"
+readonly LOG_FILE={{ backup_log_file | quote }}
+readonly ENV_FILE={{ backup_env_file | quote }}
+{% if backup_healthcheck_url | length > 0 %}
+readonly HEALTHCHECK_URL={{ backup_healthcheck_url | quote }}
+readonly HEALTHCHECK_TIMEOUT={{ backup_healthcheck_timeout }}
+{% endif %}
+
+# Everything the script prints goes to the log file and to the journal, so a
+# failure is visible both to `journalctl -u {{ backup_service_name }}` and to
+# whoever is reading the rotated log.
+exec > >(tee -a "${LOG_FILE}") 2>&1
+
+log() {
+    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*"
+}
+
+{% if backup_healthcheck_url | length > 0 %}
+# Healthcheck pings must never take the backup down with them: a monitoring
+# outage is not a reason to stop backing up.
+ping_healthcheck() {
+    local suffix="${1:-}"
+    local payload="${2:-}"
+    local -a body=()
+    if [[ -n "${payload}" ]]; then
+        body=(--data-raw "${payload}")
+    fi
+    curl --fail --silent --show-error \
+        --max-time "${HEALTHCHECK_TIMEOUT}" \
+        --retry 3 --retry-delay 2 \
+        --user-agent "restic-backup/{{ backup_restic_version }}" \
+        "${body[@]}" \
+        "${HEALTHCHECK_URL}${suffix}" >/dev/null ||
+        log "WARN healthcheck ping '${suffix:-/}' failed"
+}
+{% else %}
+ping_healthcheck() {
+    :
+}
+{% endif %}
+
+on_error() {
+    local exit_code=$?
+    local line=$1
+    log "ERROR backup failed at line ${line} with exit code ${exit_code}"
+    ping_healthcheck "/fail" "$(tail -n 40 "${LOG_FILE}")"
+    exit 1
+}
+trap 'on_error ${LINENO}' ERR
+
+# The environment file carries the backend credentials; `set -a` exports every
+# assignment in it without listing them here.
+set -a
+# shellcheck source=/dev/null
+source "${ENV_FILE}"
+set +a
+
+log "INFO starting backup of {{ backup_paths | join(', ') }}"
+ping_healthcheck "/start"
+
+{% if backup_pre_commands | length > 0 %}
+log "INFO running pre-backup hooks"
+{% for command in backup_pre_commands %}
+{{ command }}
+{% endfor %}
+{% endif %}
+
+log "INFO creating snapshot"
+"${RESTIC}" backup \
+    --verbose \
+    --exclude-file {{ backup_exclude_file | quote }} \
+{% if backup_one_file_system %}
+    --one-file-system \
+{% endif %}
+{% for tag in backup_tags %}
+    --tag {{ tag | quote }} \
+{% endfor %}
+{% if backup_limit_upload_kib > 0 %}
+    --limit-upload {{ backup_limit_upload_kib }} \
+{% endif %}
+{% if backup_limit_download_kib > 0 %}
+    --limit-download {{ backup_limit_download_kib }} \
+{% endif %}
+{% for argument in backup_extra_backup_args %}
+    {{ argument }} \
+{% endfor %}
+{% for path in backup_paths %}
+    {{ path | quote }}{{ ' \\' if not loop.last else '' }}
+{% endfor %}
+
+log "INFO applying retention policy"
+"${RESTIC}" forget \
+{% for unit, count in backup_retention | dictsort %}
+    --keep-{{ unit }} {{ count }} \
+{% endfor %}
+{% for tag in backup_tags %}
+    --tag {{ tag | quote }} \
+{% endfor %}
+{% for argument in backup_forget_extra_args %}
+    {{ argument }} \
+{% endfor %}
+{% if backup_prune %}
+    --prune
+{% else %}
+    --dry-run
+{% endif %}
+
+{% if backup_check_enabled %}
+# `check` without --read-data only verifies the index. Reading a subset each
+# run means the whole repository is eventually verified without paying for a
+# full download every night.
+log "INFO verifying repository integrity"
+"${RESTIC}" check --read-data-subset {{ backup_check_read_data_subset | quote }}
+{% endif %}
+
+{% if backup_post_commands | length > 0 %}
+log "INFO running post-backup hooks"
+{% for command in backup_post_commands %}
+{{ command }}
+{% endfor %}
+{% endif %}
+
+log "INFO backup finished"
+ping_healthcheck "" "$(tail -n 20 "${LOG_FILE}")"

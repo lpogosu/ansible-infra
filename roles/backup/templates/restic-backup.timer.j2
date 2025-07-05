@@ -1,0 +1,19 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+[Unit]
+Description=Scheduled restic backup
+
+[Timer]
+OnCalendar={{ backup_schedule }}
+# A fleet that all starts at 02:30:00 saturates the repository backend and the
+# uplink; the delay spreads the start over the following window.
+RandomizedDelaySec={{ backup_randomized_delay }}
+{% if backup_persistent %}
+# Run as soon as possible after a missed window, e.g. a host that was off.
+Persistent=true
+{% endif %}
+Unit={{ backup_service_name }}.service
+
+[Install]
+WantedBy=timers.target

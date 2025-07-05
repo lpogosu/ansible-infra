@@ -1,0 +1,46 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+[Unit]
+Description=restic backup of {{ backup_paths | join(', ') }}
+Documentation=https://restic.readthedocs.io/
+After=network-online.target
+Wants=network-online.target
+# Do not start at all if the wrapper is gone: a half-removed role should not
+# produce a unit that fails every night.
+ConditionPathExists={{ backup_wrapper_path }}
+
+[Service]
+Type=oneshot
+ExecStart={{ backup_wrapper_path }}
+# The wrapper reads paths owned by every user on the host, so it runs as root;
+# the sandbox below is what keeps that from meaning "unrestricted".
+User=root
+Group=root
+Nice={{ backup_nice }}
+IOSchedulingClass={{ backup_io_scheduling_class }}
+TimeoutStartSec={{ backup_timeout_sec }}
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+# restic keeps a metadata cache and defaults to $HOME/.cache/restic, which
+# ProtectHome makes read-only — the unit would fail on its first run with
+# "read-only file system". CacheDirectory lets systemd create and own
+# /var/cache/restic instead, so the sandbox stays as strict as it is.
+CacheDirectory={{ backup_service_name }}
+CacheDirectoryMode=0700
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths={{ backup_log_file }}
+{% if backup_repository.startswith('/') %}
+ReadWritePaths={{ backup_repository }}
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target
