@@ -1,0 +1,7 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# Patterns passed to restic through --exclude-file.
+
+{% for pattern in backup_excludes %}
+{{ pattern }}
+{% endfor %}

@@ -1,0 +1,17 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+{{ backup_log_file }} {
+    {{ backup_logrotate_frequency }}
+    rotate {{ backup_logrotate_rotate }}
+{% if backup_logrotate_compress %}
+    compress
+    delaycompress
+{% endif %}
+    missingok
+    notifempty
+    # The wrapper holds the file open through a `tee` for the whole run, so the
+    # log has to be truncated in place rather than renamed out from under it.
+    copytruncate
+    create 0640 root root
+}
