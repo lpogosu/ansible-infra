@@ -1,0 +1,41 @@
+---
+- name: Prepare
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    # The base images ship without an apt index, so the first `package` task
+    # would fail with "No package matching ... is available". Refreshing here
+    # covers the role's own installs during converge as well.
+    - name: Refresh the apt cache on Debian-family hosts
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      changed_when: false
+
+    - name: Install the OpenSSH server before the role validates its config
+      ansible.builtin.package:
+        name: openssh-server
+        state: present
+
+    # `sshd -t` refuses to validate anything when no host key exists, and the
+    # base images ship without one. Generating them here keeps the role's
+    # `validate:` hook meaningful instead of forcing it to be dropped.
+    # On a real host this is created by the running daemon; the container has
+    # never started sshd, so `sshd -t` in the role's validate hook aborts with
+    # "Missing privilege separation directory" before it reads the config.
+    - name: Create the sshd privilege separation directory
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        mode: "0755"
+      when: ansible_os_family == "Debian"
+
+    - name: Generate the SSH host keys
+      ansible.builtin.command:
+        cmd: /usr/bin/ssh-keygen -A
+        creates: /etc/ssh/ssh_host_ed25519_key

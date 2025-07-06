@@ -1,0 +1,70 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: baseline-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  - name: baseline-rocky9
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  # Scenarios live inside the role they exercise, so ansible starts from
+  # roles/<name>/molecule/default and never sees the repository's ansible.cfg.
+  # MOLECULE_PROJECT_DIRECTORY is the role directory; its parent is roles/.
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+  config_options:
+    defaults:
+      callbacks_enabled: profile_tasks
+  inventory:
+    group_vars:
+      all:
+        # The audit subsystem is not namespaced: a container cannot own the
+        # kernel audit socket, so auditd never reaches a running state here.
+        # Rule rendering is covered by the unit assertions in verify.yml.
+        baseline_manage_auditd: false
+        # Likewise the clock: chronyd would need CAP_SYS_TIME on the host.
+        baseline_manage_time: false
+        # Only network-namespaced keys can be set from inside a container.
+        # kernel.* and fs.* would either fail or leak into the host kernel.
+        baseline_sysctl_settings:
+          net.ipv4.conf.all.accept_redirects: 0
+          net.ipv4.conf.all.send_redirects: 0
+          net.ipv4.conf.all.accept_source_route: 0
+          net.ipv4.conf.all.log_martians: 1
+          net.ipv4.icmp_echo_ignore_broadcasts: 1
+          net.ipv4.tcp_syncookies: 1
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
