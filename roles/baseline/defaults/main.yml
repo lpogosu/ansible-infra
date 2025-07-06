@@ -1,0 +1,247 @@
+---
+# ---------------------------------------------------------------------------
+# Feature switches.
+# Every block of the role can be disabled independently so that a host group
+# can opt out of one control without forking the role.
+# ---------------------------------------------------------------------------
+baseline_manage_packages: true
+baseline_manage_sshd: true
+baseline_manage_sysctl: true
+baseline_manage_auditd: true
+baseline_manage_accounts: true
+baseline_manage_auto_updates: true
+baseline_manage_journald: true
+baseline_manage_time: true
+baseline_manage_banner: true
+baseline_manage_filesystems: true
+
+# Packages that must be present on every managed host, and packages that are
+# removed because they expose a network service nobody asked for.
+# Resolved from vars/<os_family>.yml so the default is correct on each family;
+# override this variable in group_vars to change the set.
+baseline_packages_present: "{{ baseline_base_packages }}"
+baseline_packages_absent: "{{ baseline_unwanted_packages }}"
+
+# ---------------------------------------------------------------------------
+# OpenSSH daemon.
+# The role writes a drop-in under /etc/ssh/sshd_config.d/ instead of rewriting
+# sshd_config, so distribution defaults stay visible and upgrades stay clean.
+# ---------------------------------------------------------------------------
+# 01-, not 99-. sshd keeps the FIRST value it reads for a keyword, and the
+# drop-in directory is read in lexical order, so a hardening file must sort
+# before the distribution's own. RHEL 9 ships 50-redhat.conf with
+# `X11Forwarding yes`; as 99-hardening.conf this role silently lost that
+# setting on the whole RHEL family while appearing to succeed.
+baseline_sshd_dropin_path: /etc/ssh/sshd_config.d/01-hardening.conf
+baseline_sshd_ensure_include: true
+baseline_sshd_port: 22
+baseline_sshd_address_family: inet
+baseline_sshd_listen_addresses: []
+baseline_sshd_permit_root_login: "no"
+baseline_sshd_password_authentication: false
+baseline_sshd_kbd_interactive_authentication: false
+baseline_sshd_pubkey_authentication: true
+baseline_sshd_permit_empty_passwords: false
+baseline_sshd_max_auth_tries: 3
+baseline_sshd_max_sessions: 8
+baseline_sshd_max_startups: "10:30:60"
+baseline_sshd_login_grace_time: 30
+baseline_sshd_client_alive_interval: 300
+baseline_sshd_client_alive_count_max: 2
+baseline_sshd_x11_forwarding: false
+baseline_sshd_allow_agent_forwarding: false
+baseline_sshd_allow_tcp_forwarding: false
+baseline_sshd_permit_user_environment: false
+baseline_sshd_use_dns: false
+baseline_sshd_log_level: VERBOSE
+baseline_sshd_allow_groups:
+  - sudo
+  - wheel
+# Cipher, KEX and MAC lists follow the current Mozilla "modern" OpenSSH
+# recommendation: no CBC, no SHA-1, no non-ETM MACs, no NIST curves in KEX.
+baseline_sshd_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+  - aes256-ctr
+  - aes192-ctr
+  - aes128-ctr
+baseline_sshd_kex_algorithms:
+  - sntrup761x25519-sha512@openssh.com
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org
+  - diffie-hellman-group16-sha512
+  - diffie-hellman-group18-sha512
+baseline_sshd_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+  - umac-128-etm@openssh.com
+baseline_sshd_host_key_algorithms:
+  - ssh-ed25519
+  - ssh-ed25519-cert-v01@openssh.com
+  - rsa-sha2-512
+  - rsa-sha2-256
+
+# ---------------------------------------------------------------------------
+# Kernel and network tunables (written to /etc/sysctl.d/).
+# Override individual keys by redefining the whole mapping in group_vars, or
+# merge with `combine` if only a few keys differ.
+# ---------------------------------------------------------------------------
+baseline_sysctl_file: /etc/sysctl.d/99-hardening.conf
+baseline_sysctl_settings:
+  # Routing and redirects: the host is not a router.
+  net.ipv4.ip_forward: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.default.secure_redirects: 0
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.default.accept_source_route: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv6.conf.default.accept_source_route: 0
+  # Spoofing and flood protection.
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.default.rp_filter: 1
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv4.conf.default.log_martians: 1
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.icmp_ignore_bogus_error_responses: 1
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.tcp_rfc1337: 1
+  # Kernel memory and process hardening.
+  kernel.randomize_va_space: 2
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  kernel.sysrq: 0
+  kernel.yama.ptrace_scope: 1
+  kernel.unprivileged_bpf_disabled: 1
+  net.core.bpf_jit_harden: 2
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  fs.protected_fifos: 2
+  fs.protected_regular: 2
+  fs.suid_dumpable: 0
+
+# ---------------------------------------------------------------------------
+# auditd.
+# `baseline_auditd_immutable` appends `-e 2`, which locks the rule set until
+# reboot. Leave it off on hosts where rules are still being tuned.
+# ---------------------------------------------------------------------------
+baseline_auditd_rules_file: /etc/audit/rules.d/99-hardening.rules
+baseline_auditd_immutable: false
+baseline_auditd_buffer_size: 8192
+baseline_auditd_failure_mode: 1
+baseline_auditd_max_log_file: 32
+baseline_auditd_num_logs: 5
+baseline_auditd_max_log_file_action: rotate
+baseline_auditd_space_left_action: syslog
+baseline_auditd_admin_space_left_action: halt
+baseline_auditd_watch_files:
+  - {path: /etc/passwd, permissions: wa, key: identity}
+  - {path: /etc/shadow, permissions: wa, key: identity}
+  - {path: /etc/group, permissions: wa, key: identity}
+  - {path: /etc/gshadow, permissions: wa, key: identity}
+  - {path: /etc/sudoers, permissions: wa, key: privilege}
+  - {path: /etc/sudoers.d, permissions: wa, key: privilege}
+  - {path: /etc/ssh/sshd_config, permissions: wa, key: sshd}
+  - {path: /etc/ssh/sshd_config.d, permissions: wa, key: sshd}
+  - {path: /var/log/lastlog, permissions: wa, key: logins}
+baseline_auditd_watch_syscalls:
+  - {syscall: "settimeofday,clock_settime,adjtimex", key: time-change}
+  - {syscall: "sethostname,setdomainname", key: system-locale}
+  - {syscall: "mount,umount2", key: mounts}
+  - {syscall: "unlink,unlinkat,rename,renameat", key: delete}
+  - {syscall: "init_module,delete_module,finit_module", key: modules}
+baseline_auditd_extra_rules: []
+
+# ---------------------------------------------------------------------------
+# Password policy and account defaults.
+# ---------------------------------------------------------------------------
+baseline_login_defs:
+  PASS_MAX_DAYS: 365
+  PASS_MIN_DAYS: 1
+  PASS_WARN_AGE: 14
+  ENCRYPT_METHOD: SHA512
+  SHA_CRYPT_MIN_ROUNDS: 640000
+  UMASK: "027"
+baseline_umask: "027"
+baseline_manage_pwquality: true
+baseline_pwquality:
+  minlen: 14
+  minclass: 4
+  dcredit: -1
+  ucredit: -1
+  lcredit: -1
+  ocredit: -1
+  maxrepeat: 3
+  maxclassrepeat: 4
+  gecoscheck: 1
+  dictcheck: 1
+  enforcing: 1
+  retry: 3
+baseline_useradd_inactive_days: 30
+
+# ---------------------------------------------------------------------------
+# Unattended security updates.
+# `baseline_auto_updates_reboot` is off by default: rebooting a production node
+# on a package's schedule is a decision for the change process, not the role.
+# ---------------------------------------------------------------------------
+baseline_auto_updates_reboot: false
+baseline_auto_updates_reboot_time: "04:30"
+baseline_auto_updates_mail_to: ""
+baseline_auto_updates_random_sleep: 1800
+baseline_auto_updates_apply_updates: true
+# Packages excluded from automatic upgrades, e.g. a pinned database engine.
+baseline_auto_updates_blacklist: []
+
+# ---------------------------------------------------------------------------
+# journald retention.
+# ---------------------------------------------------------------------------
+baseline_journald_storage: persistent
+baseline_journald_compress: true
+baseline_journald_system_max_use: 512M
+baseline_journald_system_keep_free: 1G
+baseline_journald_system_max_file_size: 64M
+baseline_journald_max_retention: 30day
+baseline_journald_forward_to_syslog: false
+baseline_journald_rate_limit_interval: 30s
+baseline_journald_rate_limit_burst: 10000
+
+# ---------------------------------------------------------------------------
+# Time synchronisation (chrony).
+# ---------------------------------------------------------------------------
+baseline_chrony_servers:
+  - {address: "0.pool.ntp.org", options: "iburst"}
+  - {address: "1.pool.ntp.org", options: "iburst"}
+  - {address: "2.pool.ntp.org", options: "iburst"}
+baseline_chrony_makestep: "1.0 3"
+baseline_chrony_leapsectz: right/UTC
+baseline_chrony_rtcsync: true
+
+# ---------------------------------------------------------------------------
+# Login banners. `/etc/issue.net` is what sshd shows before authentication.
+# ---------------------------------------------------------------------------
+baseline_banner_text: |
+  Authorized access only. All activity on this system is logged and reviewed.
+  Disconnect now if you are not an authorized user.
+baseline_banner_paths:
+  - /etc/issue
+  - /etc/issue.net
+
+# ---------------------------------------------------------------------------
+# Filesystem modules that are blacklisted because nothing on a server should
+# mount them. `usb-storage` is included; drop it for hosts with USB media.
+# ---------------------------------------------------------------------------
+baseline_disabled_filesystems:
+  - cramfs
+  - freevxfs
+  - jffs2
+  - hfs
+  - hfsplus
+  - squashfs
+  - udf
+  - usb-storage
