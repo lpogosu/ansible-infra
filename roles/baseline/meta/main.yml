@@ -1,0 +1,31 @@
+---
+galaxy_info:
+  role_name: baseline
+  namespace: lpogosu
+  author: lpogosu
+  description: CIS-informed baseline hardening for Debian- and RHEL-family servers.
+  company: ""
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - hardening
+    - security
+    - cis
+    - sshd
+    - auditd
+
+dependencies: []
