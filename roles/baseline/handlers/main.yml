@@ -1,0 +1,37 @@
+---
+- name: Restart sshd
+  ansible.builtin.service:
+    name: "{{ baseline_sshd_service }}"
+    state: restarted
+
+# auditd on RHEL ships with RefuseManualStop=yes, so `systemctl restart auditd`
+# fails with "Operation refused". The SysV wrapper is the vendor-supported way
+# to cycle the daemon there; Debian has no such restriction.
+- name: Restart auditd through the SysV wrapper
+  ansible.builtin.command:  # noqa: command-instead-of-module
+    cmd: /usr/sbin/service auditd restart
+  changed_when: true
+  when: ansible_facts['os_family'] == 'RedHat'
+  listen: Restart auditd
+
+- name: Restart auditd through systemd
+  ansible.builtin.service:
+    name: auditd
+    state: restarted
+  when: ansible_facts['os_family'] == 'Debian'
+  listen: Restart auditd
+
+- name: Reload audit rules
+  ansible.builtin.command:
+    cmd: /sbin/augenrules --load
+  changed_when: true
+
+- name: Restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+
+- name: Restart chrony
+  ansible.builtin.service:
+    name: "{{ baseline_chrony_service }}"
+    state: restarted
