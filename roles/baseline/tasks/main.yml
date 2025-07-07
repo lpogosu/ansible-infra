@@ -1,0 +1,93 @@
+---
+- name: Load OS-family specific variables
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', _baseline_vars_lookup) }}"
+  vars:
+    _baseline_vars_lookup:
+      files:
+        - "{{ ansible_facts['distribution'] }}-{{ ansible_facts['distribution_major_version'] }}.yml"
+        - "{{ ansible_facts['os_family'] }}.yml"
+      paths:
+        - "{{ role_path }}/vars"
+  tags:
+    - always
+
+- name: Verify that the target platform is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: >-
+      The baseline role supports the Debian and RedHat families only,
+      but this host reports {{ ansible_facts['os_family'] }}.
+    quiet: true
+  tags:
+    - always
+
+- name: Manage base package set
+  ansible.builtin.include_tasks: packages.yml
+  when: baseline_manage_packages | bool
+  tags:
+    - baseline
+    - packages
+
+- name: Harden the SSH daemon
+  ansible.builtin.include_tasks: sshd.yml
+  when: baseline_manage_sshd | bool
+  tags:
+    - baseline
+    - sshd
+
+- name: Apply kernel and network tunables
+  ansible.builtin.include_tasks: sysctl.yml
+  when: baseline_manage_sysctl | bool
+  tags:
+    - baseline
+    - sysctl
+
+- name: Configure the audit daemon
+  ansible.builtin.include_tasks: auditd.yml
+  when: baseline_manage_auditd | bool
+  tags:
+    - baseline
+    - auditd
+
+- name: Configure password policy and account defaults
+  ansible.builtin.include_tasks: accounts.yml
+  when: baseline_manage_accounts | bool
+  tags:
+    - baseline
+    - accounts
+
+- name: Configure unattended security updates
+  ansible.builtin.include_tasks: auto_updates.yml
+  when: baseline_manage_auto_updates | bool
+  tags:
+    - baseline
+    - updates
+
+- name: Bound journald disk usage
+  ansible.builtin.include_tasks: journald.yml
+  when: baseline_manage_journald | bool
+  tags:
+    - baseline
+    - journald
+
+- name: Configure time synchronisation
+  ansible.builtin.include_tasks: time.yml
+  when: baseline_manage_time | bool
+  tags:
+    - baseline
+    - time
+
+- name: Install login banners
+  ansible.builtin.include_tasks: banner.yml
+  when: baseline_manage_banner | bool
+  tags:
+    - baseline
+    - banner
+
+- name: Disable unused filesystem modules
+  ansible.builtin.include_tasks: filesystems.yml
+  when: baseline_manage_filesystems | bool
+  tags:
+    - baseline
+    - filesystems

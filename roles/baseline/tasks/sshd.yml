@@ -1,0 +1,46 @@
+---
+- name: Install the OpenSSH server
+  ansible.builtin.package:
+    name: "{{ baseline_sshd_package }}"
+    state: present
+
+# Debian 11 and RHEL 8 ship an sshd_config without an Include directive, so a
+# drop-in file would be silently ignored there. Adding it at the top of the
+# file keeps the drop-in authoritative on every supported release.
+- name: Ensure sshd_config sources the drop-in directory
+  ansible.builtin.lineinfile:
+    path: "{{ baseline_sshd_config_path }}"
+    line: "Include {{ baseline_sshd_dropin_path | dirname }}/*.conf"
+    regexp: '^\s*Include\s+{{ baseline_sshd_dropin_path | dirname }}/\*\.conf\s*$'
+    insertbefore: BOF
+    firstmatch: true
+    owner: root
+    group: root
+    mode: "0600"
+    validate: "{{ baseline_sshd_binary }} -t -f %s"
+  when: baseline_sshd_ensure_include | bool
+  notify: Restart sshd
+
+- name: Create the sshd drop-in directory
+  ansible.builtin.file:
+    path: "{{ baseline_sshd_dropin_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the sshd hardening drop-in
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: "{{ baseline_sshd_dropin_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    validate: "{{ baseline_sshd_binary }} -t -f %s"
+  notify: Restart sshd
+
+- name: Enable and start the SSH daemon
+  ansible.builtin.service:
+    name: "{{ baseline_sshd_service }}"
+    state: started
+    enabled: true

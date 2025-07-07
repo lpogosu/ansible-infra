@@ -1,0 +1,16 @@
+---
+- name: Refresh the APT cache when it is older than an hour
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install baseline packages
+  ansible.builtin.package:
+    name: "{{ baseline_packages_present }}"
+    state: present
+
+- name: Remove packages that expose unnecessary network services
+  ansible.builtin.package:
+    name: "{{ baseline_packages_absent }}"
+    state: absent
