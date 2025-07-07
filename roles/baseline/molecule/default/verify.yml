@@ -1,0 +1,169 @@
+---
+# The verifier deliberately re-declares what it expects instead of importing
+# the role defaults: an assertion that reads the same variable the role wrote
+# would pass even if the role never touched the host.
+- name: Verify
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  vars:
+    baseline_verify_weak_ciphers:
+      - 3des-cbc
+      - aes128-cbc
+      - aes256-cbc
+      - arcfour
+      - arcfour256
+    baseline_verify_expected_sysctl:
+      net.ipv4.conf.all.accept_redirects: "0"
+      net.ipv4.conf.all.send_redirects: "0"
+      net.ipv4.tcp_syncookies: "1"
+      net.ipv4.icmp_echo_ignore_broadcasts: "1"
+    baseline_verify_blacklisted_modules:
+      - cramfs
+      - freevxfs
+      - jffs2
+      - hfs
+      - hfsplus
+      - squashfs
+      - udf
+      - usb-storage
+    baseline_verify_update_timer: "{{ 'apt-daily-upgrade.timer' if ansible_facts['os_family'] == 'Debian' else 'dnf-automatic.timer' }}"
+  tasks:
+    - name: Ask sshd to validate the effective configuration
+      ansible.builtin.command:
+        cmd: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Read the effective sshd configuration
+      ansible.builtin.command:
+        cmd: /usr/sbin/sshd -T
+      changed_when: false
+      register: baseline_verify_sshd
+
+    - name: Assert that the hardened sshd settings are the effective ones
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in baseline_verify_sshd.stdout_lines"
+          - "'passwordauthentication no' in baseline_verify_sshd.stdout_lines"
+          - "'permitemptypasswords no' in baseline_verify_sshd.stdout_lines"
+          - "'x11forwarding no' in baseline_verify_sshd.stdout_lines"
+          - "'maxauthtries 3' in baseline_verify_sshd.stdout_lines"
+          - "'banner /etc/issue.net' in baseline_verify_sshd.stdout_lines"
+        fail_msg: "sshd -T does not report the hardened values from the drop-in"
+
+    - name: Extract the effective cipher and MAC lists
+      ansible.builtin.set_fact:
+        baseline_verify_ciphers: "{{ (baseline_verify_sshd.stdout_lines | select('match', '^ciphers ') | first).split(' ')[1].split(',') }}"
+        baseline_verify_macs: "{{ (baseline_verify_sshd.stdout_lines | select('match', '^macs ') | first).split(' ')[1].split(',') }}"
+
+    - name: Assert that no CBC or RC4 cipher survived
+      ansible.builtin.assert:
+        that:
+          - baseline_verify_ciphers | intersect(baseline_verify_weak_ciphers) | length == 0
+          - baseline_verify_macs | select('search', 'sha1') | list | length == 0
+          - baseline_verify_macs | reject('search', '-etm@') | list | length == 0
+        fail_msg: "sshd still offers weak ciphers ({{ baseline_verify_ciphers | join(',') }}) or MACs ({{ baseline_verify_macs | join(',') }})"
+
+    - name: Read the running values of the network tunables
+      ansible.builtin.command:
+        cmd: "/sbin/sysctl -n {{ item.key }}"
+      changed_when: false
+      register: baseline_verify_sysctl
+      loop: "{{ baseline_verify_expected_sysctl | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Assert that the running kernel matches the declared tunables
+      ansible.builtin.assert:
+        that:
+          - item.stdout == item.item.value
+        fail_msg: "{{ item.item.key }} is {{ item.stdout }}, expected {{ item.item.value }}"
+      loop: "{{ baseline_verify_sysctl.results }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+
+    - name: Read login.defs
+      ansible.builtin.slurp:
+        src: /etc/login.defs
+      register: baseline_verify_login_defs
+
+    - name: Assert that the password ageing policy is in place
+      ansible.builtin.assert:
+        that:
+          - baseline_verify_login_defs.content | b64decode is search('(?m)^PASS_MAX_DAYS\\s+365$')
+          - baseline_verify_login_defs.content | b64decode is search('(?m)^PASS_MIN_DAYS\\s+1$')
+          - baseline_verify_login_defs.content | b64decode is search('(?m)^ENCRYPT_METHOD\\s+SHA512$')
+          - baseline_verify_login_defs.content | b64decode is search('(?m)^UMASK\\s+027$')
+        fail_msg: "login.defs does not carry the expected password policy"
+
+    - name: Read the pwquality configuration
+      ansible.builtin.slurp:
+        src: /etc/security/pwquality.conf
+      register: baseline_verify_pwquality
+
+    - name: Assert that password complexity is enforced
+      ansible.builtin.assert:
+        that:
+          - baseline_verify_pwquality.content | b64decode is search('(?m)^minlen = 14$')
+          - baseline_verify_pwquality.content | b64decode is search('(?m)^enforcing = 1$')
+        fail_msg: "pwquality.conf does not enforce the expected complexity"
+
+    - name: Stat the managed drop-in files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: baseline_verify_files
+      loop:
+        - /etc/ssh/sshd_config.d/01-hardening.conf
+        - /etc/systemd/journald.conf.d/99-baseline.conf
+        - /etc/modprobe.d/99-baseline-blacklist.conf
+        - /etc/profile.d/99-baseline-umask.sh
+        - /etc/issue.net
+
+    - name: Assert that every managed file exists, is root-owned and not world-writable
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == 'root'
+          - item.stat.mode is not search('[2367]$')
+        fail_msg: "{{ item.item }} is missing, not root-owned, or writable by everyone"
+      loop: "{{ baseline_verify_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Read the pre-authentication banner and the module blacklist
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      register: baseline_verify_contents
+      loop:
+        - /etc/issue.net
+        - /etc/modprobe.d/99-baseline-blacklist.conf
+
+    - name: Assert that the banner carries the legal notice
+      ansible.builtin.assert:
+        that:
+          - "'Authorized access only' in (baseline_verify_contents.results[0].content | b64decode)"
+        fail_msg: "/etc/issue.net does not contain the configured banner text"
+
+    - name: Assert that every disabled filesystem has both blacklist lines
+      ansible.builtin.assert:
+        that:
+          - (baseline_verify_contents.results[1].content | b64decode) is search('(?m)^blacklist ' ~ item ~ '$')
+          - (baseline_verify_contents.results[1].content | b64decode) is search('(?m)^install ' ~ item ~ ' /bin/true$')
+        fail_msg: "{{ item }} is not fully disabled"
+      loop: "{{ baseline_verify_blacklisted_modules }}"
+
+    # `systemctl enable` on a timer creates exactly this symlink, so its
+    # presence is the on-disk definition of "enabled".
+    - name: Look for the enablement symlink of the update timer
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/timers.target.wants/{{ baseline_verify_update_timer }}"
+      register: baseline_verify_timer
+
+    - name: Assert that unattended updates are scheduled
+      ansible.builtin.assert:
+        that:
+          - baseline_verify_timer.stat.exists
+        fail_msg: "{{ baseline_verify_update_timer }} is not enabled"
