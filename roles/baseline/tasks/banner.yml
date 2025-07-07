@@ -1,0 +1,17 @@
+---
+- name: Install the pre-authentication login banner
+  ansible.builtin.template:
+    src: issue.j2
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ baseline_banner_paths }}"
+
+# The Dynamic MOTD scripts on Ubuntu print kernel and package information to
+# anyone who logs in; the banner replaces that with a legal notice only.
+- name: Remove the distribution MOTD news fetcher
+  ansible.builtin.file:
+    path: /etc/update-motd.d/50-motd-news
+    state: absent
+  when: ansible_facts['distribution'] == 'Ubuntu'

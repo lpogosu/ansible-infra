@@ -1,0 +1,25 @@
+---
+# `install <module> /bin/true` blocks both an explicit `modprobe` and the
+# autoloading that happens when the kernel sees a matching filesystem. The
+# blacklist line on its own only covers autoloading, so both are written.
+#
+# Already-resident modules are deliberately not unloaded: `modprobe -r` on a
+# module that something is using fails the play, and on a module that nothing
+# is using it buys nothing until the next boot anyway.
+# kmod ships /etc/modprobe.d on a normal install, but a minimal image may not
+# have it, and `template` refuses to create a missing parent directory.
+- name: Ensure the modprobe configuration directory exists
+  ansible.builtin.file:
+    path: /etc/modprobe.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Blacklist filesystem and storage modules that servers do not mount
+  ansible.builtin.template:
+    src: modprobe-blacklist.conf.j2
+    dest: /etc/modprobe.d/99-baseline-blacklist.conf
+    owner: root
+    group: root
+    mode: "0644"
