@@ -1,0 +1,48 @@
+---
+# Kernel tunables are the one place where a template is the wrong tool: a
+# rendered file only guarantees what will be applied at the next boot. The
+# module writes the same file *and* pushes the value into the running kernel,
+# so a host that drifted at runtime converges without a reboot.
+- name: Check whether the kernel exposes the IPv6 stack
+  ansible.builtin.stat:
+    path: /proc/sys/net/ipv6
+  register: _baseline_ipv6_sysctl
+
+# The module writes its temporary file beside the target, so the drop-in
+# directory has to exist first. Distributions ship /etc/sysctl.d, but a minimal
+# image may not, and the failure then names a temp file rather than the cause.
+- name: Ensure the sysctl drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ baseline_sysctl_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Apply kernel and network tunables
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: "{{ baseline_sysctl_file }}"
+    sysctl_set: true
+    reload: true
+    state: present
+  loop: "{{ baseline_sysctl_settings | dict2items | rejectattr('key', 'search', _baseline_sysctl_reject) | list }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  vars:
+    # Hosts booted with ipv6.disable=1 have no net.ipv6.* keys at all; writing
+    # them would fail the play instead of reporting a real problem.
+    _baseline_sysctl_reject: "{{ '^__keep_everything__' if _baseline_ipv6_sysctl.stat.exists else '^net\\.ipv6\\.' }}"
+
+# The module creates the drop-in with the umask of the connection user; pin
+# the ownership explicitly. Skipped in check mode, where the file that the
+# previous task would have created does not exist yet.
+- name: Enforce ownership and permissions on the sysctl drop-in
+  ansible.builtin.file:
+    path: "{{ baseline_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    state: file
+  when: not ansible_check_mode

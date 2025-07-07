@@ -1,0 +1,35 @@
+---
+- name: Install chrony
+  ansible.builtin.package:
+    name: "{{ baseline_chrony_package }}"
+    state: present
+
+- name: Look for a systemd-timesyncd unit
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/systemd-timesyncd.service
+  register: _baseline_timesyncd_unit
+
+# systemd-timesyncd and chrony both claim the NTP client slot; leaving both
+# installed produces a host whose clock source depends on boot ordering.
+- name: Mask systemd-timesyncd so it cannot compete with chrony
+  ansible.builtin.systemd_service:
+    name: systemd-timesyncd
+    state: stopped
+    enabled: false
+    masked: true
+  when: _baseline_timesyncd_unit.stat.exists
+
+- name: Write the chrony configuration
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: "{{ baseline_chrony_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Enable and start chrony
+  ansible.builtin.service:
+    name: "{{ baseline_chrony_service }}"
+    state: started
+    enabled: true
