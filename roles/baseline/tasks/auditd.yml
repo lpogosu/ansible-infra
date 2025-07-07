@@ -1,0 +1,37 @@
+---
+- name: Install the audit daemon
+  ansible.builtin.package:
+    name: "{{ baseline_auditd_packages }}"
+    state: present
+
+- name: Configure auditd log rotation and disk-space behaviour
+  ansible.builtin.template:
+    src: auditd.conf.j2
+    dest: "{{ baseline_auditd_config_path }}"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart auditd
+
+- name: Create the audit rules directory
+  ansible.builtin.file:
+    path: "{{ baseline_auditd_rules_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the audit rule set
+  ansible.builtin.template:
+    src: audit-hardening.rules.j2
+    dest: "{{ baseline_auditd_rules_file }}"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reload audit rules
+
+- name: Enable and start the audit daemon
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: true

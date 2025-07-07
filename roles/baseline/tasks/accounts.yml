@@ -1,0 +1,47 @@
+---
+- name: Set password ageing and hashing defaults in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^\s*#?\s*{{ item.key }}\s+'
+    line: "{{ item.key }}\t{{ item.value }}"
+    state: present
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ baseline_login_defs | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Set the default inactivity lock for new accounts
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^\s*#?\s*INACTIVE='
+    line: "INACTIVE={{ baseline_useradd_inactive_days }}"
+    state: present
+    create: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install the pwquality library
+  ansible.builtin.package:
+    name: "{{ baseline_pwquality_package }}"
+    state: present
+  when: baseline_manage_pwquality | bool
+
+- name: Configure password complexity requirements
+  ansible.builtin.template:
+    src: pwquality.conf.j2
+    dest: "{{ baseline_pwquality_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: baseline_manage_pwquality | bool
+
+- name: Set a restrictive default umask for interactive shells
+  ansible.builtin.template:
+    src: umask.sh.j2
+    dest: /etc/profile.d/99-baseline-umask.sh
+    owner: root
+    group: root
+    mode: "0644"
