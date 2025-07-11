@@ -1,0 +1,30 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+// {{ ansible_managed }}
+
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+    "origin=Ubuntu,archive=${distro_codename}-security,label=Ubuntu";
+};
+
+Unattended-Upgrade::Package-Blacklist {
+{% for package in baseline_auto_updates_blacklist %}
+    "{{ package }}";
+{% endfor %}
+};
+
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if baseline_auto_updates_reboot else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ baseline_auto_updates_reboot_time }}";
+{% if baseline_auto_updates_mail_to | length > 0 %}
+Unattended-Upgrade::Mail "{{ baseline_auto_updates_mail_to }}";
+Unattended-Upgrade::MailReport "on-change";
+{% endif %}
+Unattended-Upgrade::SyslogEnable "true";
+
+// Spread the download across a window so a fleet does not hit the mirror
+// at the same second.
+APT::Periodic::RandomSleep "{{ baseline_auto_updates_random_sleep }}";

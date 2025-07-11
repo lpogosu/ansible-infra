@@ -1,0 +1,36 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+## {{ ansible_managed }}
+## Loaded by augenrules(8) after the distribution rule files.
+
+## Queue depth and behaviour when the kernel backlog overflows.
+-b {{ baseline_auditd_buffer_size }}
+-f {{ baseline_auditd_failure_mode }}
+--backlog_wait_time 60000
+
+## Identity, privilege and remote-access configuration files.
+{% for watch in baseline_auditd_watch_files %}
+-w {{ watch.path }} -p {{ watch.permissions }} -k {{ watch.key }}
+{% endfor %}
+
+## Syscalls worth an audit record on both 32- and 64-bit ABIs.
+{% for rule in baseline_auditd_watch_syscalls %}
+-a always,exit -F arch=b64 -S {{ rule.syscall }} -F auid>=1000 -F auid!=unset -k {{ rule.key }}
+-a always,exit -F arch=b32 -S {{ rule.syscall }} -F auid>=1000 -F auid!=unset -k {{ rule.key }}
+{% endfor %}
+
+## Every use of a setuid binary by a real user.
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k setuid-exec
+-a always,exit -F arch=b32 -S execve -C uid!=euid -F euid=0 -k setuid-exec
+
+## Failed attempts to open or modify files, which is where intrusions show up.
+-a always,exit -F arch=b64 -S open,openat,openat2,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access
+-a always,exit -F arch=b64 -S open,openat,openat2,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access
+
+{% for rule in baseline_auditd_extra_rules %}
+{{ rule }}
+{% endfor %}
+{% if baseline_auditd_immutable %}
+
+## Lock the rule set. Changing rules now requires a reboot.
+-e 2
+{% endif %}
