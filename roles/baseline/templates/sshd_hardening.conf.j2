@@ -1,0 +1,54 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# Managed by the `baseline` role. Local edits are overwritten on the next run.
+
+Port {{ baseline_sshd_port }}
+AddressFamily {{ baseline_sshd_address_family }}
+{% for address in baseline_sshd_listen_addresses %}
+ListenAddress {{ address }}
+{% endfor %}
+
+LogLevel {{ baseline_sshd_log_level }}
+SyslogFacility AUTH
+
+PermitRootLogin {{ baseline_sshd_permit_root_login }}
+PubkeyAuthentication {{ 'yes' if baseline_sshd_pubkey_authentication else 'no' }}
+PasswordAuthentication {{ 'yes' if baseline_sshd_password_authentication else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if baseline_sshd_kbd_interactive_authentication else 'no' }}
+PermitEmptyPasswords {{ 'yes' if baseline_sshd_permit_empty_passwords else 'no' }}
+HostbasedAuthentication no
+IgnoreRhosts yes
+UsePAM yes
+
+MaxAuthTries {{ baseline_sshd_max_auth_tries }}
+MaxSessions {{ baseline_sshd_max_sessions }}
+MaxStartups {{ baseline_sshd_max_startups }}
+LoginGraceTime {{ baseline_sshd_login_grace_time }}
+ClientAliveInterval {{ baseline_sshd_client_alive_interval }}
+ClientAliveCountMax {{ baseline_sshd_client_alive_count_max }}
+
+X11Forwarding {{ 'yes' if baseline_sshd_x11_forwarding else 'no' }}
+AllowAgentForwarding {{ 'yes' if baseline_sshd_allow_agent_forwarding else 'no' }}
+AllowTcpForwarding {{ 'yes' if baseline_sshd_allow_tcp_forwarding else 'no' }}
+PermitUserEnvironment {{ 'yes' if baseline_sshd_permit_user_environment else 'no' }}
+PermitTunnel no
+GatewayPorts no
+UseDNS {{ 'yes' if baseline_sshd_use_dns else 'no' }}
+Compression no
+PrintLastLog yes
+
+{% if baseline_sshd_allow_groups | length > 0 %}
+AllowGroups {{ baseline_sshd_allow_groups | join(' ') }}
+{% endif %}
+
+Ciphers {{ baseline_sshd_ciphers | join(',') }}
+KexAlgorithms {{ baseline_sshd_kex_algorithms | join(',') }}
+MACs {{ baseline_sshd_macs | join(',') }}
+HostKeyAlgorithms {{ baseline_sshd_host_key_algorithms | join(',') }}
+
+{% if baseline_manage_banner %}
+Banner /etc/issue.net
+{% endif %}
+{# `Subsystem sftp` is intentionally not set here: the distribution config
+   already defines it, and OpenSSH treats a second definition as a fatal
+   configuration error rather than an override. #}

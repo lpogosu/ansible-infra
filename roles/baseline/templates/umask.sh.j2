@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Interactive shells default to a umask that keeps new files off world-read.
+# login.defs covers login sessions; this covers su and non-login shells.
+
+umask {{ baseline_umask }}

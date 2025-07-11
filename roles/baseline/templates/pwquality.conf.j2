@@ -1,0 +1,7 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# Password complexity enforced through pam_pwquality.
+
+{% for key, value in baseline_pwquality | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}
