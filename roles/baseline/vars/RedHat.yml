@@ -1,0 +1,42 @@
+---
+baseline_sshd_package: openssh-server
+baseline_sshd_service: sshd
+baseline_sshd_binary: /usr/sbin/sshd
+baseline_sshd_config_path: /etc/ssh/sshd_config
+
+baseline_auditd_packages:
+  - audit
+baseline_auditd_config_path: /etc/audit/auditd.conf
+
+baseline_pwquality_package: libpwquality
+baseline_pwquality_config_path: /etc/security/pwquality.conf
+
+baseline_auto_update_packages:
+  - dnf-automatic
+baseline_auto_update_services:
+  - dnf-automatic.timer
+
+baseline_chrony_package: chrony
+baseline_chrony_service: chronyd
+baseline_chrony_config_path: /etc/chrony.conf
+
+# Base package set.
+#
+# `curl` is deliberately absent: RHEL 9 ships curl-minimal, which already
+# provides /usr/bin/curl and conflicts with the full curl package. Asking for
+# `curl` makes dnf fail to depsolve on any minimal install rather than quietly
+# upgrading, so the role would break on exactly the hosts it is meant to harden.
+#
+# gnupg is packaged as gnupg2 on this family.
+baseline_base_packages:
+  - gnupg2
+  - lsof
+  - rsync
+  - sudo
+
+# The rsh client is packaged as `rsh` here, not `rsh-client`. Removing a name
+# that does not exist is a silent no-op, so the wrong name means the control
+# simply never applied on this family.
+baseline_unwanted_packages:
+  - telnet
+  - rsh
