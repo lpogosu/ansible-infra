@@ -1,0 +1,25 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+{% for server in baseline_chrony_servers %}
+server {{ server.address }} {{ server.options | default('iburst') }}
+{% endfor %}
+
+driftfile /var/lib/chrony/chrony.drift
+logdir /var/log/chrony
+
+# Step the clock instead of slewing it if the offset is large at start-up:
+# a host that boots with a wrong clock would otherwise take hours to converge.
+makestep {{ baseline_chrony_makestep }}
+{% if baseline_chrony_rtcsync %}
+rtcsync
+{% endif %}
+{% if baseline_chrony_leapsectz %}
+leapsectz {{ baseline_chrony_leapsectz }}
+{% endif %}
+
+# The host is a client, not a time server: refuse commands and NTP queries
+# from the network.
+cmdport 0
+port 0
+noclientlog

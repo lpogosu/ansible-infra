@@ -1,0 +1,28 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+[commands]
+upgrade_type = security
+random_sleep = {{ baseline_auto_updates_random_sleep }}
+network_online_timeout = 60
+download_updates = yes
+apply_updates = {{ 'yes' if baseline_auto_updates_apply_updates else 'no' }}
+reboot = {{ 'when-needed' if baseline_auto_updates_reboot else 'never' }}
+
+[emitters]
+{% if baseline_auto_updates_mail_to | length > 0 %}
+emit_via = stdio,motd,email
+{% else %}
+emit_via = stdio,motd
+{% endif %}
+system_name = {{ inventory_hostname }}
+
+{% if baseline_auto_updates_mail_to | length > 0 %}
+[email]
+email_from = dnf-automatic@{{ inventory_hostname }}
+email_to = {{ baseline_auto_updates_mail_to }}
+email_host = localhost
+{% endif %}
+
+[base]
+debuglevel = 1
