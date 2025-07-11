@@ -1,0 +1,15 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# Without these bounds the journal grows to 10% of the filesystem and takes
+# the host down with it when /var fills.
+
+[Journal]
+Storage={{ baseline_journald_storage }}
+Compress={{ 'yes' if baseline_journald_compress else 'no' }}
+SystemMaxUse={{ baseline_journald_system_max_use }}
+SystemKeepFree={{ baseline_journald_system_keep_free }}
+SystemMaxFileSize={{ baseline_journald_system_max_file_size }}
+MaxRetentionSec={{ baseline_journald_max_retention }}
+ForwardToSyslog={{ 'yes' if baseline_journald_forward_to_syslog else 'no' }}
+RateLimitIntervalSec={{ baseline_journald_rate_limit_interval }}
+RateLimitBurst={{ baseline_journald_rate_limit_burst }}

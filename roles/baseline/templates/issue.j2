@@ -1,0 +1,3 @@
+{#- ansible_managed is rendered as a Jinja comment on purpose: /etc/issue has
+    no comment syntax and every byte of it is printed before authentication. -#}
+{{ baseline_banner_text | trim }}

@@ -1,0 +1,9 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# `blacklist` stops kernel autoloading; `install ... /bin/true` also stops an
+# explicit modprobe. Both lines are needed to actually disable a module.
+
+{% for module in baseline_disabled_filesystems %}
+blacklist {{ module }}
+install {{ module }} /bin/true
+{% endfor %}
