@@ -1,0 +1,101 @@
+---
+# ---------------------------------------------------------------------------
+# Feature switches.
+# ---------------------------------------------------------------------------
+docker_host_manage_repository: true
+docker_host_manage_daemon_config: true
+docker_host_manage_users: true
+docker_host_manage_prune: true
+
+# ---------------------------------------------------------------------------
+# Upstream repository.
+# `stable` is the only channel used; `test` and `nightly` exist upstream but
+# have no place on a host that runs anything real.
+# ---------------------------------------------------------------------------
+docker_host_repository_channel: stable
+docker_host_apt_key_path: /etc/apt/keyrings/docker.asc
+docker_host_apt_key_url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"
+docker_host_apt_repository_url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}"
+docker_host_yum_repository_url: >-
+  https://download.docker.com/linux/centos/{{ ansible_facts['distribution_major_version'] }}/{{ ansible_facts['architecture'] }}/stable
+docker_host_yum_key_url: "https://download.docker.com/linux/centos/gpg"
+# APT names architectures differently from uname; the fact is translated rather
+# than shelling out to `dpkg --print-architecture`.
+docker_host_apt_architecture_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armhf
+docker_host_apt_architecture: "{{ docker_host_apt_architecture_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+
+# ---------------------------------------------------------------------------
+# Packages.
+# Entries may carry a version spec in the package manager's own syntax, which
+# is how a fleet is pinned to one engine build:
+#   - "docker-ce=5:27.3.1-1~debian.12~bookworm"   (APT)
+#   - "docker-ce-27.3.1-1.el9"                     (DNF)
+# ---------------------------------------------------------------------------
+docker_host_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+docker_host_install_compose_plugin: true
+
+docker_host_service_name: docker
+docker_host_service_state: started
+docker_host_service_enabled: true
+
+# ---------------------------------------------------------------------------
+# /etc/docker/daemon.json
+#
+# `docker_host_daemon_config` is the opinionated base; put host-specific keys
+# in `docker_host_daemon_config_extra`, which is merged recursively over it.
+# That way a group_vars override adds a registry mirror without having to
+# restate the whole logging policy.
+# ---------------------------------------------------------------------------
+docker_host_daemon_config:
+  # Unbounded json-file logs are the single most common way a Docker host
+  # fills its root filesystem.
+  log-driver: json-file
+  log-opts:
+    max-size: 50m
+    max-file: "5"
+  # Containers keep running while the daemon is restarted for an upgrade.
+  live-restore: true
+  # docker-proxy costs a process per published port and hides the real source
+  # address from the container; the kernel handles the NAT either way.
+  userland-proxy: false
+  storage-driver: overlay2
+  # The default 172.17/16 pool collides with plenty of corporate networks.
+  default-address-pools:
+    - base: 10.201.0.0/16
+      size: 24
+  no-new-privileges: true
+  icc: false
+  default-ulimits:
+    nofile:
+      Name: nofile
+      Hard: 65536
+      Soft: 65536
+  metrics-addr: 127.0.0.1:9323
+docker_host_daemon_config_extra: {}
+
+# ---------------------------------------------------------------------------
+# Group membership.
+# Anyone in the `docker` group can mount the host root filesystem into a
+# container, i.e. membership is equivalent to passwordless root. Keep the list
+# short and explicit.
+# ---------------------------------------------------------------------------
+docker_host_group: docker
+docker_host_users: []
+
+# ---------------------------------------------------------------------------
+# Scheduled prune.
+# `until` keeps images younger than the window so that a rollback to the
+# previous release does not have to pull again.
+# ---------------------------------------------------------------------------
+docker_host_prune_schedule: "Sun 03:20"
+docker_host_prune_randomized_delay: 1800
+docker_host_prune_until: 168h
+docker_host_prune_volumes: false
+docker_host_prune_build_cache: true
