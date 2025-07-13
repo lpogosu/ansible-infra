@@ -1,0 +1,29 @@
+---
+galaxy_info:
+  role_name: docker_host
+  namespace: lpogosu
+  author: lpogosu
+  description: Install and configure the Docker engine from the upstream repository.
+  company: ""
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - docker
+    - containers
+    - compose
+
+dependencies: []
