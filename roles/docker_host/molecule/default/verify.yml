@@ -1,0 +1,95 @@
+---
+- name: Verify
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    - name: Read the rendered daemon configuration
+      ansible.builtin.slurp:
+        src: /etc/docker/daemon.json
+      register: docker_host_verify_daemon
+
+    - name: Assert that daemon.json is valid JSON carrying the expected policy
+      ansible.builtin.assert:
+        that:
+          - docker_host_verify_config['log-driver'] == 'json-file'
+          - docker_host_verify_config['log-opts']['max-size'] == '50m'
+          - docker_host_verify_config['log-opts']['max-file'] == '5'
+          - docker_host_verify_config['live-restore'] | bool
+          - not (docker_host_verify_config['userland-proxy'] | bool)
+          - docker_host_verify_config['no-new-privileges'] | bool
+          - docker_host_verify_config['default-address-pools'][0]['base'] == '10.201.0.0/16'
+        fail_msg: "daemon.json does not carry the expected policy: {{ docker_host_verify_config }}"
+      vars:
+        docker_host_verify_config: "{{ docker_host_verify_daemon.content | b64decode | from_json }}"
+
+    # Reading the file back only proves the template rendered. Asking the
+    # daemon proves it restarted and adopted the configuration.
+    - name: Ask the daemon to report its own view of the configuration
+      ansible.builtin.command:
+        cmd: docker info
+      changed_when: false
+      register: docker_host_verify_info
+
+    - name: Assert that the running daemon actually picked the configuration up
+      ansible.builtin.assert:
+        that:
+          - "'Logging Driver: json-file' in docker_host_verify_info.stdout"
+          - "'Live Restore Enabled: true' in docker_host_verify_info.stdout"
+        fail_msg: "the running daemon did not adopt the configured logging or live-restore settings"
+
+    - name: Run a container to prove the engine is functional
+      ansible.builtin.command:
+        cmd: docker run --rm hello-world
+      changed_when: false
+      register: docker_host_verify_run
+
+    - name: Assert that the container ran
+      ansible.builtin.assert:
+        that:
+          - "'Hello from Docker' in docker_host_verify_run.stdout"
+        fail_msg: "the engine could not run a container"
+
+    - name: Read the group database entry for docker
+      ansible.builtin.getent:
+        database: group
+        key: docker
+
+    - name: Assert that the listed user is in the docker group
+      ansible.builtin.assert:
+        that:
+          - "'molecule' in ansible_facts['getent_group']['docker'][2].split(',')"
+        fail_msg: "molecule is not a member of the docker group"
+
+    - name: Stat the prune timer enablement symlink
+      ansible.builtin.stat:
+        path: /etc/systemd/system/timers.target.wants/docker-prune.timer
+      register: docker_host_verify_timer
+
+    - name: Read the prune unit
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/docker-prune.service
+      register: docker_host_verify_unit
+
+    - name: Assert that the prune job is installed, enabled and bounded
+      ansible.builtin.assert:
+        that:
+          - docker_host_verify_timer.stat.exists
+          - (docker_host_verify_unit.content | b64decode) is search('until=168h')
+          - (docker_host_verify_unit.content | b64decode) is not search('--volumes')
+        fail_msg: "the scheduled prune is missing or does not match the configured policy"
+
+    - name: Check that the compose plugin is installed
+      ansible.builtin.command:
+        cmd: docker compose version --short
+      changed_when: false
+      register: docker_host_verify_compose
+
+    - name: Assert that compose reports a version
+      ansible.builtin.assert:
+        that:
+          - docker_host_verify_compose.stdout is match('^v?[0-9]+\\.[0-9]+')
+        fail_msg: "docker compose reported '{{ docker_host_verify_compose.stdout }}'"
