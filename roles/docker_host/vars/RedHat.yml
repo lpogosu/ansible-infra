@@ -1,0 +1,5 @@
+---
+docker_host_repo_prerequisites:
+  - ca-certificates
+  - dnf-plugins-core
+docker_host_compose_package: docker-compose-plugin
