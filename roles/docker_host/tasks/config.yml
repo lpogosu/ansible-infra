@@ -1,0 +1,21 @@
+---
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The file is rendered from a mapping through `to_nice_json`, so it is valid
+# JSON by construction. `dockerd --validate` then catches the class of error a
+# JSON parser cannot see: unknown keys and impossible combinations.
+- name: Write /etc/docker/daemon.json
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/dockerd --validate --config-file=%s
+  notify: Restart docker

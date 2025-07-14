@@ -1,0 +1,11 @@
+---
+- name: Install the Docker engine packages
+  ansible.builtin.package:
+    name: "{{ docker_host_packages + ([docker_host_compose_package] if docker_host_install_compose_plugin else []) }}"
+    state: present
+
+- name: Enable and start the Docker daemon
+  ansible.builtin.systemd_service:
+    name: "{{ docker_host_service_name }}"
+    state: "{{ docker_host_service_state }}"
+    enabled: "{{ docker_host_service_enabled }}"

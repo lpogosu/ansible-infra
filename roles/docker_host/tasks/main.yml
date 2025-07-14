@@ -1,0 +1,56 @@
+---
+- name: Load OS-family specific variables
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', _docker_host_vars_lookup) }}"
+  vars:
+    _docker_host_vars_lookup:
+      files:
+        - "{{ ansible_facts['os_family'] }}.yml"
+      paths:
+        - "{{ role_path }}/vars"
+  tags:
+    - always
+
+- name: Verify that the target platform is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: >-
+      The docker_host role supports the Debian and RedHat families only,
+      but this host reports {{ ansible_facts['os_family'] }}.
+    quiet: true
+  tags:
+    - always
+
+- name: Configure the upstream Docker repository
+  ansible.builtin.include_tasks: repository.yml
+  when: docker_host_manage_repository | bool
+  tags:
+    - docker
+    - docker-repo
+
+- name: Install the Docker engine
+  ansible.builtin.include_tasks: install.yml
+  tags:
+    - docker
+    - docker-install
+
+- name: Configure the Docker daemon
+  ansible.builtin.include_tasks: config.yml
+  when: docker_host_manage_daemon_config | bool
+  tags:
+    - docker
+    - docker-config
+
+- name: Manage docker group membership
+  ansible.builtin.include_tasks: users.yml
+  when: docker_host_manage_users | bool
+  tags:
+    - docker
+    - docker-users
+
+- name: Install the scheduled prune job
+  ansible.builtin.include_tasks: prune.yml
+  when: docker_host_manage_prune | bool
+  tags:
+    - docker
+    - docker-prune
