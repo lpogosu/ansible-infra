@@ -1,0 +1,15 @@
+---
+- name: Ensure the docker group exists
+  ansible.builtin.group:
+    name: "{{ docker_host_group }}"
+    state: present
+    system: true
+
+# `append: true` matters: replacing a user's secondary groups here would drop
+# their sudo membership on the next run.
+- name: Grant the listed users access to the Docker socket
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ docker_host_group }}"
+    append: true
+  loop: "{{ docker_host_users }}"

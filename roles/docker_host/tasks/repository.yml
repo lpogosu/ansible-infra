@@ -1,0 +1,64 @@
+---
+- name: Install the packages needed to fetch a signed repository
+  ansible.builtin.package:
+    name: "{{ docker_host_repo_prerequisites }}"
+    state: present
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: "{{ docker_host_apt_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Fetch the Docker repository signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_host_apt_key_url }}"
+    dest: "{{ docker_host_apt_key_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts['os_family'] == 'Debian'
+
+# deb822, not the one-line format. `signed_by=` inside the bracket options of a
+# .list entry is silently ignored by apt 2.6: it falls back to the system
+# keyring, reports NO_PUBKEY and calls the repository unsigned — a failure that
+# looks like a bad key but is an option that never applied. The .sources file
+# scopes the key to this repository only; a key in /etc/apt/trusted.gpg.d would
+# be trusted for every repository on the host.
+- name: Configure the Docker APT repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "{{ docker_host_apt_repository_url }}"
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: ["{{ docker_host_repository_channel }}"]
+    architectures: ["{{ docker_host_apt_architecture }}"]
+    signed_by: "{{ docker_host_apt_key_path }}"
+    state: present
+    enabled: true
+  register: _docker_host_repo
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Refresh the APT cache after the repository changed
+  ansible.builtin.apt:
+    update_cache: true
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - _docker_host_repo.changed
+  changed_when: false
+
+# `$releasever` on Rocky and Alma expands to the full 9.x version, which has no
+# directory upstream; the major version is substituted from facts instead.
+- name: Configure the Docker YUM repository
+  ansible.builtin.yum_repository:
+    name: docker-ce-stable
+    description: Docker CE Stable
+    baseurl: "{{ docker_host_yum_repository_url }}"
+    gpgkey: "{{ docker_host_yum_key_url }}"
+    gpgcheck: true
+    enabled: true
+    file: docker-ce
+  when: ansible_facts['os_family'] == 'RedHat'

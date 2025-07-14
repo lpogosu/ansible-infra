@@ -1,0 +1,19 @@
+---
+- name: Install the prune unit and its timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - docker-prune.service
+    - docker-prune.timer
+  notify: Reload systemd units
+
+- name: Enable the weekly prune timer
+  ansible.builtin.systemd_service:
+    name: docker-prune.timer
+    state: started
+    enabled: true
+    daemon_reload: true
