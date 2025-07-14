@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description=Weekly Docker prune
+Documentation=https://docs.docker.com/engine/reference/commandline/system_prune/
+
+[Timer]
+OnCalendar={{ docker_host_prune_schedule }}
+# Without a spread, every host in the fleet prunes at the same second and the
+# registry gets a synchronised pull storm on the next deploy.
+RandomizedDelaySec={{ docker_host_prune_randomized_delay }}
+Persistent=true
+Unit=docker-prune.service
+
+[Install]
+WantedBy=timers.target

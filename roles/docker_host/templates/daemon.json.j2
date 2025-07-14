@@ -1,0 +1,4 @@
+{#- daemon.json has no comment syntax, so the ansible_managed banner is kept
+    out of the rendered file. The mapping is serialised with to_nice_json,
+    which makes malformed JSON impossible to produce from here. -#}
+{{ docker_host_daemon_config | combine(docker_host_daemon_config_extra, recursive=True) | to_nice_json }}
