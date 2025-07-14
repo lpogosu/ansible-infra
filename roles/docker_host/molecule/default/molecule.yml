@@ -1,0 +1,60 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: docker-host-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # dockerd needs its own cgroup subtree and the ability to create network
+    # namespaces, which is exactly what a privileged container provides.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  - name: docker-host-rocky9
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  # Scenarios live inside the role they exercise, so ansible starts from
+  # roles/<name>/molecule/default and never sees the repository's ansible.cfg.
+  # MOLECULE_PROJECT_DIRECTORY is the role directory; its parent is roles/.
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+  inventory:
+    group_vars:
+      all:
+        docker_host_users:
+          - molecule
+        # The nested daemon has no usable overlay2 backing store on an
+        # overlayfs container root, so the test uses the fallback driver.
+        docker_host_daemon_config_extra:
+          storage-driver: vfs
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
