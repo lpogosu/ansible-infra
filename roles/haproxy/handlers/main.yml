@@ -1,0 +1,8 @@
+---
+# `reload` on HAProxy is a soft restart: the old process keeps serving
+# established connections until they drain, so a configuration change does not
+# cut live requests.
+- name: Reload haproxy
+  ansible.builtin.systemd_service:
+    name: "{{ haproxy_service_name }}"
+    state: reloaded
