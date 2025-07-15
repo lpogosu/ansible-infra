@@ -1,0 +1,105 @@
+---
+haproxy_service_state: started
+haproxy_service_enabled: true
+
+# ---------------------------------------------------------------------------
+# global section
+# ---------------------------------------------------------------------------
+haproxy_maxconn: 20000
+haproxy_nbthread: 0
+haproxy_log_target: /dev/log
+haproxy_log_facility: local0
+haproxy_chroot: /var/lib/haproxy
+haproxy_runtime_dir: /run/haproxy
+# The admin socket is what makes a rolling deploy possible: servers can be put
+# into maintenance and drained without touching the configuration file.
+haproxy_stats_socket: /run/haproxy/admin.sock
+haproxy_stats_socket_mode: "660"
+haproxy_stats_socket_level: admin
+haproxy_hard_stop_after: 5m
+
+# TLS termination defaults, applied to every `bind` that carries `ssl`.
+haproxy_ssl_min_version: TLSv1.2
+haproxy_ssl_bind_ciphers:
+  - ECDHE-ECDSA-AES128-GCM-SHA256
+  - ECDHE-RSA-AES128-GCM-SHA256
+  - ECDHE-ECDSA-AES256-GCM-SHA384
+  - ECDHE-RSA-AES256-GCM-SHA384
+  - ECDHE-ECDSA-CHACHA20-POLY1305
+  - ECDHE-RSA-CHACHA20-POLY1305
+haproxy_ssl_bind_ciphersuites:
+  - TLS_AES_128_GCM_SHA256
+  - TLS_AES_256_GCM_SHA384
+  - TLS_CHACHA20_POLY1305_SHA256
+haproxy_ssl_bind_options: "prefer-client-ciphers no-tls-tickets"
+haproxy_ssl_dh_param_size: 2048
+
+# ---------------------------------------------------------------------------
+# defaults section
+# ---------------------------------------------------------------------------
+haproxy_default_mode: http
+haproxy_default_retries: 3
+haproxy_default_options:
+  - httplog
+  - dontlognull
+  - redispatch
+# The stock error pages shipped by the distribution package. Turn this off on
+# hosts where a custom set is deployed by another role.
+haproxy_manage_error_pages: true
+haproxy_error_page_codes: [400, 403, 408, 500, 502, 503, 504]
+haproxy_timeouts:
+  connect: 5s
+  client: 30s
+  server: 30s
+  http-request: 10s
+  http-keep-alive: 10s
+  queue: 30s
+  check: 5s
+  tunnel: 1h
+haproxy_default_server_options: "inter 3s fall 3 rise 2 slowstart 20s"
+
+# ---------------------------------------------------------------------------
+# Frontends.
+#
+#   name              section name (required)
+#   binds             [{address, port, ssl, certificate, alpn, extra}]
+#   mode              http|tcp, defaults to haproxy_default_mode
+#   default_backend   backend name
+#   options           extra `option` lines
+#   acls              [{name, criterion}]
+#   use_backends      [{backend, condition}]
+#   http_requests     raw `http-request` lines
+#   extra             raw directives
+# ---------------------------------------------------------------------------
+haproxy_frontends: []
+
+# ---------------------------------------------------------------------------
+# Backends.
+#
+#   name              section name (required)
+#   mode              http|tcp
+#   balance           roundrobin|leastconn|source|…
+#   health_check      {uri, method, version, host, expect_status}
+#   servers           [{name, address, port, options}]
+#   options           extra `option` lines
+#   http_requests     raw `http-request` lines
+#   extra             raw directives
+# ---------------------------------------------------------------------------
+haproxy_backends: []
+
+# ---------------------------------------------------------------------------
+# Statistics listener.
+# Bound to loopback by default: the stats page exposes backend topology and,
+# with an admin scope, the ability to disable servers.
+# ---------------------------------------------------------------------------
+haproxy_stats_enabled: true
+haproxy_stats_bind_address: 127.0.0.1
+haproxy_stats_bind_port: 8404
+haproxy_stats_uri: /haproxy-status
+haproxy_stats_refresh: 10s
+haproxy_stats_user: ""
+haproxy_stats_password: ""
+# The Prometheus exporter is compiled into HAProxy 2.0 and later; it needs no
+# sidecar process.
+haproxy_stats_prometheus: true
+haproxy_stats_prometheus_uri: /metrics
