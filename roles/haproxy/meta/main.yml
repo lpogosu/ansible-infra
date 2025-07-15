@@ -1,0 +1,30 @@
+---
+galaxy_info:
+  role_name: haproxy
+  namespace: lpogosu
+  author: lpogosu
+  description: HAProxy load balancer with TLS termination, health checks and a runtime admin socket.
+  company: ""
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - haproxy
+    - loadbalancer
+    - tls
+    - proxy
+
+dependencies: []
