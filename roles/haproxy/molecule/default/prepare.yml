@@ -1,0 +1,44 @@
+---
+- name: Prepare
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    # The base images ship without an apt index, so the first `package` task
+    # would fail with "No package matching ... is available". Refreshing here
+    # covers the role's own installs during converge as well.
+    - name: Refresh the apt cache on Debian-family hosts
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      changed_when: false
+
+    - name: Install the OpenSSL command line tool
+      ansible.builtin.package:
+        name: openssl
+        state: present
+
+    - name: Create the directory holding the throwaway certificate
+      ansible.builtin.file:
+        path: /etc/ssl/molecule
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    # HAProxy wants one PEM file holding the key and the certificate together,
+    # which is the difference that usually breaks a first TLS rollout.
+    - name: Generate a self-signed PEM bundle for the TLS bind
+      ansible.builtin.shell:
+        cmd: >-
+          umask 0077 &&
+          openssl req -x509 -nodes -newkey rsa:2048 -days 2 -subj /CN=lb.example.com
+          -keyout /etc/ssl/molecule/lb.key -out /etc/ssl/molecule/lb.crt &&
+          cat /etc/ssl/molecule/lb.key /etc/ssl/molecule/lb.crt
+          > /etc/ssl/molecule/lb.example.com.pem
+        creates: /etc/ssl/molecule/lb.example.com.pem
+      changed_when: true

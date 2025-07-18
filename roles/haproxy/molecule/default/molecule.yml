@@ -1,0 +1,104 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: haproxy-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  - name: haproxy-rocky9
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  # Scenarios live inside the role they exercise, so ansible starts from
+  # roles/<name>/molecule/default and never sees the repository's ansible.cfg.
+  # MOLECULE_PROJECT_DIRECTORY is the role directory; its parent is roles/.
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+  inventory:
+    group_vars:
+      all:
+        haproxy_stats_user: molecule
+        haproxy_stats_password: molecule
+        haproxy_frontends:
+          - name: web
+            binds:
+              - address: 127.0.0.1
+                port: 8080
+              - address: 127.0.0.1
+                port: 8443
+                ssl: true
+                certificate: /etc/ssl/molecule/lb.example.com.pem
+            options:
+              - forwardfor
+            acls:
+              - name: is_api
+                criterion: path_beg /api/
+            use_backends:
+              - backend: api_pool
+                condition: is_api
+            http_requests:
+              - "set-header X-Forwarded-Proto https if { ssl_fc }"
+            default_backend: web_pool
+        haproxy_backends:
+          - name: web_pool
+            balance: roundrobin
+            health_check:
+              uri: /healthz
+              host: lb.example.com
+              expect_status: 200
+            servers:
+              - name: web1
+                address: 127.0.0.1
+                port: 9001
+              - name: web2
+                address: 127.0.0.1
+                port: 9002
+          - name: api_pool
+            balance: leastconn
+            health_check:
+              uri: /api/healthz
+              expect_status: 200
+            servers:
+              - name: api1
+                address: 127.0.0.1
+                port: 9101
+                options: maxconn 200
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
