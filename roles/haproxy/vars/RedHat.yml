@@ -1,0 +1,3 @@
+---
+# The RHEL package installs the same pages under /usr/share/haproxy.
+haproxy_error_page_dir: /usr/share/haproxy

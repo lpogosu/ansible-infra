@@ -1,0 +1,3 @@
+---
+# The Debian package ships its stock error pages under /etc/haproxy/errors.
+haproxy_error_page_dir: /etc/haproxy/errors

@@ -1,0 +1,8 @@
+---
+haproxy_packages:
+  - haproxy
+haproxy_service_name: haproxy
+haproxy_user: haproxy
+haproxy_group: haproxy
+haproxy_binary: /usr/sbin/haproxy
+haproxy_config_path: /etc/haproxy/haproxy.cfg
