@@ -1,0 +1,24 @@
+---
+- name: Install the HAProxy package
+  ansible.builtin.package:
+    name: "{{ haproxy_packages }}"
+    state: present
+
+- name: Create the chroot directory
+  ansible.builtin.file:
+    path: "{{ haproxy_chroot }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# `haproxy -c` resolves the stats socket path at parse time, so the runtime
+# directory has to exist before the configuration can be validated. systemd
+# recreates it on every start through RuntimeDirectory=.
+- name: Create the runtime directory used by the admin socket
+  ansible.builtin.file:
+    path: "{{ haproxy_runtime_dir }}"
+    state: directory
+    owner: "{{ haproxy_user }}"
+    group: "{{ haproxy_group }}"
+    mode: "0750"

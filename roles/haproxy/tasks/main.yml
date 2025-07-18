@@ -1,0 +1,34 @@
+---
+- name: Load OS-family specific variables
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', _haproxy_vars_lookup) }}"
+  vars:
+    _haproxy_vars_lookup:
+      files:
+        - "{{ ansible_facts['os_family'] }}.yml"
+      paths:
+        - "{{ role_path }}/vars"
+  tags:
+    - always
+
+- name: Verify that the target platform is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: >-
+      The haproxy role supports the Debian and RedHat families only,
+      but this host reports {{ ansible_facts['os_family'] }}.
+    quiet: true
+  tags:
+    - always
+
+- name: Install HAProxy
+  ansible.builtin.include_tasks: install.yml
+  tags:
+    - haproxy
+    - haproxy-install
+
+- name: Render the HAProxy configuration
+  ansible.builtin.include_tasks: config.yml
+  tags:
+    - haproxy
+    - haproxy-config

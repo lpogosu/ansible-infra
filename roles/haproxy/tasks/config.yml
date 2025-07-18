@@ -1,0 +1,20 @@
+---
+# HAProxy keeps its whole configuration in one file, which is the one case
+# where `validate` can check the real thing: `haproxy -c -f` parses the
+# candidate file completely, including certificate paths and ACL syntax, so a
+# broken change never reaches /etc/haproxy.
+- name: Render haproxy.cfg
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ haproxy_config_path }}"
+    owner: root
+    group: "{{ haproxy_group }}"
+    mode: "0640"
+    validate: "{{ haproxy_binary }} -c -f %s"
+  notify: Reload haproxy
+
+- name: Enable and start HAProxy
+  ansible.builtin.systemd_service:
+    name: "{{ haproxy_service_name }}"
+    state: "{{ haproxy_service_state }}"
+    enabled: "{{ haproxy_service_enabled }}"
