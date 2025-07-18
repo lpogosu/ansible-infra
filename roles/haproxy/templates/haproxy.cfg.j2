@@ -1,0 +1,110 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+global
+    log {{ haproxy_log_target }} {{ haproxy_log_facility }}
+    chroot {{ haproxy_chroot }}
+    user {{ haproxy_user }}
+    group {{ haproxy_group }}
+    daemon
+    maxconn {{ haproxy_maxconn }}
+{% if haproxy_nbthread > 0 %}
+    nbthread {{ haproxy_nbthread }}
+{% endif %}
+    # Runtime API: drain a server before a deploy without editing this file.
+    stats socket {{ haproxy_stats_socket }} mode {{ haproxy_stats_socket_mode }} level {{ haproxy_stats_socket_level }} expose-fd listeners
+    stats timeout 30s
+    # Bound the shutdown so a stuck connection cannot block a restart forever.
+    hard-stop-after {{ haproxy_hard_stop_after }}
+
+    ssl-default-bind-ciphers {{ haproxy_ssl_bind_ciphers | join(':') }}
+    ssl-default-bind-ciphersuites {{ haproxy_ssl_bind_ciphersuites | join(':') }}
+    ssl-default-bind-options ssl-min-ver {{ haproxy_ssl_min_version }} {{ haproxy_ssl_bind_options }}
+    ssl-default-server-ciphers {{ haproxy_ssl_bind_ciphers | join(':') }}
+    ssl-default-server-options ssl-min-ver {{ haproxy_ssl_min_version }}
+    tune.ssl.default-dh-param {{ haproxy_ssl_dh_param_size }}
+
+defaults
+    log global
+    mode {{ haproxy_default_mode }}
+    retries {{ haproxy_default_retries }}
+{% for option in haproxy_default_options %}
+    option {{ option }}
+{% endfor %}
+{% for name, value in haproxy_timeouts | dictsort %}
+    timeout {{ name }} {{ value }}
+{% endfor %}
+    default-server {{ haproxy_default_server_options }}
+{% if haproxy_manage_error_pages %}
+{% for code in haproxy_error_page_codes %}
+    errorfile {{ code }} {{ haproxy_error_page_dir }}/{{ code }}.http
+{% endfor %}
+{% endif %}
+
+{% for frontend in haproxy_frontends %}
+frontend {{ frontend.name }}
+    mode {{ frontend.mode | default(haproxy_default_mode) }}
+{% for bind in frontend.binds %}
+    bind {{ bind.address | default('*') }}:{{ bind.port }}{% if bind.ssl | default(false) %} ssl crt {{ bind.certificate }} alpn {{ bind.alpn | default('h2,http/1.1') }}{% endif %}{% if bind.extra is defined %} {{ bind.extra }}{% endif %}
+
+{% endfor %}
+{% for option in frontend.options | default([]) %}
+    option {{ option }}
+{% endfor %}
+{% for acl in frontend.acls | default([]) %}
+    acl {{ acl.name }} {{ acl.criterion }}
+{% endfor %}
+{% for line in frontend.http_requests | default([]) %}
+    http-request {{ line }}
+{% endfor %}
+{% for rule in frontend.use_backends | default([]) %}
+    use_backend {{ rule.backend }} if {{ rule.condition }}
+{% endfor %}
+{% for line in frontend.extra | default([]) %}
+    {{ line }}
+{% endfor %}
+{% if frontend.default_backend is defined %}
+    default_backend {{ frontend.default_backend }}
+{% endif %}
+
+{% endfor %}
+{% for backend in haproxy_backends %}
+backend {{ backend.name }}
+    mode {{ backend.mode | default(haproxy_default_mode) }}
+    balance {{ backend.balance | default('roundrobin') }}
+{% for option in backend.options | default([]) %}
+    option {{ option }}
+{% endfor %}
+{% if backend.health_check is defined %}
+    option httpchk
+    http-check send meth {{ backend.health_check.method | default('GET') }} uri {{ backend.health_check.uri }} ver {{ backend.health_check.version | default('HTTP/1.1') }}{% if backend.health_check.host is defined %} hdr Host {{ backend.health_check.host }}{% endif %}
+
+    http-check expect status {{ backend.health_check.expect_status | default(200) }}
+{% endif %}
+{% for line in backend.http_requests | default([]) %}
+    http-request {{ line }}
+{% endfor %}
+{% for line in backend.extra | default([]) %}
+    {{ line }}
+{% endfor %}
+{% for server in backend.servers %}
+    server {{ server.name }} {{ server.address }}:{{ server.port }} check{% if server.options is defined %} {{ server.options }}{% endif %}
+
+{% endfor %}
+
+{% endfor %}
+{% if haproxy_stats_enabled %}
+listen stats
+    bind {{ haproxy_stats_bind_address }}:{{ haproxy_stats_bind_port }}
+    mode http
+    stats enable
+    stats uri {{ haproxy_stats_uri }}
+    stats refresh {{ haproxy_stats_refresh }}
+    stats show-legends
+{% if haproxy_stats_user | length > 0 %}
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+{% endif %}
+{% if haproxy_stats_prometheus %}
+    http-request use-service prometheus-exporter if { path {{ haproxy_stats_prometheus_uri }} }
+{% endif %}
+{% endif %}
