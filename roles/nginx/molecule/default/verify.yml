@@ -1,0 +1,127 @@
+---
+- name: Verify
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    - name: Ask nginx to parse its own configuration
+      ansible.builtin.command:
+        cmd: /usr/sbin/nginx -t
+      changed_when: false
+      register: nginx_verify_test
+
+    - name: Assert that the configuration is accepted
+      ansible.builtin.assert:
+        that:
+          - "'test is successful' in nginx_verify_test.stderr"
+        fail_msg: "nginx -t failed: {{ nginx_verify_test.stderr }}"
+
+    - name: Stat the rendered virtual hosts
+      ansible.builtin.stat:
+        path: "/etc/nginx/conf.d/{{ item }}.conf"
+      register: nginx_verify_vhosts
+      loop:
+        - static
+        - app
+        - retired
+
+    - name: Assert that enabled vhosts exist and the disabled one does not
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_vhosts.results[0].stat.exists
+          - nginx_verify_vhosts.results[1].stat.exists
+          - not nginx_verify_vhosts.results[2].stat.exists
+        fail_msg: "the set of rendered vhosts does not match the declared list"
+
+    - name: Fetch the default static vhost over plain HTTP
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        status_code:
+          - 200
+          - 403
+          - 404
+        return_content: false
+      register: nginx_verify_http
+
+    - name: Assert that the security headers are present on the plain HTTP response
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_http.x_content_type_options == 'nosniff'
+          - nginx_verify_http.x_frame_options == 'SAMEORIGIN'
+          - nginx_verify_http.referrer_policy == 'strict-origin-when-cross-origin'
+          - "'server' not in nginx_verify_http or 'nginx/' not in nginx_verify_http.server"
+        fail_msg: "security headers are missing or the version banner leaked: {{ nginx_verify_http }}"
+
+    - name: Follow the HTTP to HTTPS redirect of the TLS vhost
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        headers:
+          Host: app.example.com
+        follow_redirects: none
+        status_code:
+          - 308
+      register: nginx_verify_redirect
+
+    - name: Assert that the redirect points at HTTPS
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_redirect.location is match('^https://app\\.example\\.com/')
+        fail_msg: "expected a redirect to HTTPS, got {{ nginx_verify_redirect.location | default('none') }}"
+
+    - name: Request the TLS vhost over HTTPS
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        headers:
+          Host: app.example.com
+        validate_certs: false
+        status_code:
+          - 502
+          - 504
+      register: nginx_verify_https
+
+    - name: Assert that HSTS is set on the TLS listener
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_https.strict_transport_security is search('max-age=63072000')
+          - nginx_verify_https.strict_transport_security is search('includeSubDomains')
+        fail_msg: "HSTS is missing from the TLS response: {{ nginx_verify_https }}"
+
+    - name: Probe TLS 1.1, which must be refused
+      ansible.builtin.command:
+        cmd: openssl s_client -connect 127.0.0.1:443 -tls1_1
+        stdin: ""
+      changed_when: false
+      failed_when: false
+      register: nginx_verify_tls11
+
+    - name: Probe TLS 1.2, which must be accepted
+      ansible.builtin.command:
+        cmd: openssl s_client -connect 127.0.0.1:443 -tls1_2
+        stdin: ""
+      changed_when: false
+      failed_when: false
+      register: nginx_verify_tls12
+
+    - name: Assert that only modern TLS versions are negotiable
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_tls11.rc != 0
+          - nginx_verify_tls12.rc == 0
+        fail_msg: "TLS version policy is wrong: tls1.1 rc={{ nginx_verify_tls11.rc }}, tls1.2 rc={{ nginx_verify_tls12.rc }}"
+
+    - name: Read the main configuration
+      ansible.builtin.slurp:
+        src: /etc/nginx/nginx.conf
+      register: nginx_verify_main
+
+    - name: Assert that the rate limit zones are declared
+      ansible.builtin.assert:
+        that:
+          - (nginx_verify_main.content | b64decode) is search('limit_req_zone \\$binary_remote_addr zone=general:10m rate=30r/s;')
+          - (nginx_verify_main.content | b64decode) is search('limit_req_zone \\$binary_remote_addr zone=auth:10m rate=5r/m;')
+          - (nginx_verify_main.content | b64decode) is search('limit_req_status 429;')
+          - (nginx_verify_main.content | b64decode) is search('server_tokens off;')
+        fail_msg: "the rate limit zones or server_tokens are not configured as declared"
