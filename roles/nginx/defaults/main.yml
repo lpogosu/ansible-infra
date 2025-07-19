@@ -1,0 +1,130 @@
+---
+# ---------------------------------------------------------------------------
+# Feature switches.
+# ---------------------------------------------------------------------------
+nginx_manage_main_config: true
+nginx_manage_vhosts: true
+nginx_remove_default_vhost: true
+
+nginx_service_state: started
+nginx_service_enabled: true
+
+# Set to false on hosts without an IPv6 stack (many container runtimes): nginx
+# refuses to start when it cannot bind a listen directive.
+nginx_listen_ipv6: true
+
+# ---------------------------------------------------------------------------
+# Worker and connection tuning.
+# ---------------------------------------------------------------------------
+nginx_worker_processes: auto
+nginx_worker_rlimit_nofile: 65536
+nginx_worker_connections: 4096
+nginx_multi_accept: true
+nginx_keepalive_timeout: 65
+nginx_keepalive_requests: 1000
+nginx_client_max_body_size: 16m
+nginx_client_body_timeout: 15
+nginx_client_header_timeout: 15
+nginx_send_timeout: 30
+nginx_types_hash_max_size: 2048
+nginx_server_names_hash_bucket_size: 128
+
+# ---------------------------------------------------------------------------
+# Logging.
+# The `main` format adds upstream timings, which is what actually makes an
+# access log useful when a service starts responding slowly.
+# ---------------------------------------------------------------------------
+nginx_log_format: >-
+  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent
+  "$http_referer" "$http_user_agent" rt=$request_time urt="$upstream_response_time"
+nginx_access_log: /var/log/nginx/access.log
+nginx_error_log: /var/log/nginx/error.log
+nginx_error_log_level: warn
+
+# ---------------------------------------------------------------------------
+# TLS.
+# The cipher list is the Mozilla "intermediate" set restricted to TLS 1.2 and
+# 1.3; TLS 1.3 suites are not configurable through ssl_ciphers and are always
+# on. Add TLSv1.1/1.0 only with a documented reason.
+# ---------------------------------------------------------------------------
+nginx_ssl_protocols:
+  - TLSv1.2
+  - TLSv1.3
+nginx_ssl_ciphers:
+  - ECDHE-ECDSA-AES128-GCM-SHA256
+  - ECDHE-RSA-AES128-GCM-SHA256
+  - ECDHE-ECDSA-AES256-GCM-SHA384
+  - ECDHE-RSA-AES256-GCM-SHA384
+  - ECDHE-ECDSA-CHACHA20-POLY1305
+  - ECDHE-RSA-CHACHA20-POLY1305
+nginx_ssl_prefer_server_ciphers: false
+nginx_ssl_ecdh_curve: X25519:prime256v1:secp384r1
+nginx_ssl_session_cache: shared:SSL:20m
+nginx_ssl_session_timeout: 1d
+nginx_ssl_session_tickets: false
+nginx_ssl_stapling: true
+# OCSP stapling needs a resolver to reach the responder. The default is the
+# systemd-resolved stub; point it at the site resolver on hosts without it.
+nginx_resolver: 127.0.0.53
+nginx_resolver_timeout: 5s
+nginx_ssl_dhparam: ""
+nginx_hsts_value: "max-age=63072000; includeSubDomains"
+
+# ---------------------------------------------------------------------------
+# Response headers applied to every server block through a snippet.
+# `always` makes nginx emit them on error responses too, which is where a
+# missing header usually bites.
+# ---------------------------------------------------------------------------
+nginx_security_headers:
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+  Cross-Origin-Opener-Policy: same-origin
+nginx_hide_server_tokens: true
+
+# ---------------------------------------------------------------------------
+# Rate limiting.
+# Zones are declared here once and referenced per location; 1 MB of zone
+# memory tracks roughly 16k IPv4 states.
+# ---------------------------------------------------------------------------
+nginx_limit_req_zones:
+  - name: general
+    key: $binary_remote_addr
+    size: 10m
+    rate: 30r/s
+  - name: auth
+    key: $binary_remote_addr
+    size: 10m
+    rate: 5r/m
+nginx_limit_conn_zones:
+  - name: addr
+    key: $binary_remote_addr
+    size: 10m
+nginx_limit_req_status: 429
+nginx_limit_conn_status: 429
+
+# ---------------------------------------------------------------------------
+# Virtual hosts.
+#
+# Each entry accepts:
+#   name              file name under conf.d (required)
+#   server_name       list of names (required)
+#   enabled           default true
+#   listen_port       plain HTTP port, default 80
+#   default_server    add `default_server` to the listen directive
+#   root / index      static document root
+#   client_max_body_size
+#   access_log / error_log
+#   tls:
+#     enabled, port, certificate, certificate_key, trusted_certificate,
+#     redirect_http, hsts
+#   upstream:
+#     name, keepalive, servers: [{address, options}]
+#   locations: list of
+#     path, proxy_pass, alias, root, try_files, return,
+#     limit_req: {zone, burst, nodelay}, limit_conn: {zone, limit},
+#     extra: [raw directives]
+#   extra_config: [raw directives placed in the server block]
+# ---------------------------------------------------------------------------
+nginx_vhosts: []
