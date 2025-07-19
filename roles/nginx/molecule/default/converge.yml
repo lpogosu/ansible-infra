@@ -1,0 +1,12 @@
+---
+- name: Converge
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    - name: Apply the nginx role
+      ansible.builtin.include_role:
+        name: nginx

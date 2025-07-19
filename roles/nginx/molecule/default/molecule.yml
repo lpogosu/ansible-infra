@@ -1,0 +1,100 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../../../requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: nginx-debian12
+    image: geerlingguy/docker-debian12-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+  - name: nginx-rocky9
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    command: /usr/lib/systemd/systemd
+    pre_build_image: true
+    # systemd is PID 1 here and needs to mount and write cgroups; without this
+    # the container exits before ansible ever connects and every task reports
+    # UNREACHABLE, which points at the connection rather than at the container.
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+provisioner:
+  name: ansible
+  # Scenarios live inside the role they exercise, so ansible starts from
+  # roles/<name>/molecule/default and never sees the repository's ansible.cfg.
+  # MOLECULE_PROJECT_DIRECTORY is the role directory; its parent is roles/.
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+  inventory:
+    group_vars:
+      all:
+        # The default bridge network of the test container has no IPv6.
+        nginx_listen_ipv6: false
+        nginx_ssl_stapling: false
+        nginx_vhosts:
+          - name: static
+            server_name:
+              - static.example.com
+            default_server: true
+            root: /var/www/static
+            index:
+              - index.html
+            rate_limit:
+              zone: general
+              burst: 20
+              nodelay: true
+          - name: app
+            server_name:
+              - app.example.com
+            tls:
+              enabled: true
+              certificate: /etc/ssl/molecule/app.example.com.crt
+              certificate_key: /etc/ssl/molecule/app.example.com.key
+              redirect_http: true
+              hsts: true
+            upstream:
+              name: app_backend
+              keepalive: 16
+              servers:
+                - address: 127.0.0.1:8080
+                  options: max_fails=3 fail_timeout=10s
+            locations:
+              - path: /
+                proxy_pass: http://app_backend
+              - path: /login
+                proxy_pass: http://app_backend
+                limit_req:
+                  zone: auth
+                  burst: 5
+          - name: retired
+            server_name:
+              - retired.example.com
+            enabled: false
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
