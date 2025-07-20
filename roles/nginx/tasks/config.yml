@@ -1,0 +1,31 @@
+---
+# Snippets are written first: nginx.conf and the vhosts `include` them, and
+# `nginx -t` on a config that includes a missing file is a hard error.
+- name: Write the shared snippets
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ nginx_config_dir }}/snippets/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - ssl-params.conf
+    - security-headers.conf
+  notify:
+    - Validate nginx configuration
+    - Reload nginx
+
+# nginx.conf is the one file that can be validated in isolation: `nginx -t -c`
+# parses it together with everything it includes, so a syntax error in it never
+# reaches /etc/nginx.
+- name: Write nginx.conf
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ nginx_config_dir }}/nginx.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "{{ nginx_binary }} -t -c %s"
+  notify:
+    - Validate nginx configuration
+    - Reload nginx

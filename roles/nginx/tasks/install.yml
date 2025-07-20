@@ -1,0 +1,44 @@
+---
+- name: Install the nginx packages
+  ansible.builtin.package:
+    name: "{{ nginx_packages }}"
+    state: present
+
+# The `http2` directive moved out of `listen` in 1.25.1, and Debian 12 and
+# RHEL 9 both ship older builds. The templates branch on this value rather than
+# on the distribution, so a host running a backported nginx is still correct.
+- name: Read the installed nginx version
+  ansible.builtin.command:
+    cmd: "{{ nginx_binary }} -v"
+  changed_when: false
+  check_mode: false
+  register: _nginx_version_output
+
+- name: Record the nginx version
+  ansible.builtin.set_fact:
+    nginx_version: "{{ (_nginx_version_output.stderr | regex_search('nginx/([0-9][0-9.]*)', '\\1'))[0] }}"
+
+- name: Create the snippet and vhost directories
+  ansible.builtin.file:
+    path: "{{ nginx_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - conf.d
+    - snippets
+
+- name: Remove the distribution placeholder site
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ nginx_default_vhost_files }}"
+  when: nginx_remove_default_vhost | bool
+  notify: Reload nginx
+
+- name: Enable and start nginx
+  ansible.builtin.systemd_service:
+    name: "{{ nginx_service_name }}"
+    state: "{{ nginx_service_state }}"
+    enabled: "{{ nginx_service_enabled }}"

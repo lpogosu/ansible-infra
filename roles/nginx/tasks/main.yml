@@ -1,0 +1,48 @@
+---
+- name: Load OS-family specific variables
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', _nginx_vars_lookup) }}"
+  vars:
+    _nginx_vars_lookup:
+      files:
+        - "{{ ansible_facts['os_family'] }}.yml"
+      paths:
+        - "{{ role_path }}/vars"
+  tags:
+    - always
+
+- name: Verify that the target platform is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: >-
+      The nginx role supports the Debian and RedHat families only,
+      but this host reports {{ ansible_facts['os_family'] }}.
+    quiet: true
+  tags:
+    - always
+
+- name: Install nginx
+  ansible.builtin.include_tasks: install.yml
+  tags:
+    - nginx
+    - nginx-install
+
+- name: Write the main configuration
+  ansible.builtin.include_tasks: config.yml
+  when: nginx_manage_main_config | bool
+  tags:
+    - nginx
+    - nginx-config
+
+- name: Render the virtual hosts
+  ansible.builtin.include_tasks: vhosts.yml
+  when: nginx_manage_vhosts | bool
+  tags:
+    - nginx
+    - nginx-vhosts
+
+- name: Confirm the assembled configuration parses
+  ansible.builtin.include_tasks: validate.yml
+  tags:
+    - nginx
+    - nginx-validate
