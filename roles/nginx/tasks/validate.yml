@@ -1,0 +1,24 @@
+---
+# A vhost fragment cannot be validated on its own: it has no enclosing `http`
+# context, so `nginx -t -c fragment` always fails. The whole tree is therefore
+# parsed once after everything has been rendered. Combined with the validating
+# handler this means a broken fragment fails the play before any reload, and
+# the running process keeps serving the previous configuration.
+#
+# Skipped in check mode, where nothing has been written and the binary may not
+# even be installed yet.
+- name: Parse the full nginx configuration tree
+  ansible.builtin.command:
+    cmd: "{{ nginx_binary }} -t"
+  changed_when: false
+  register: _nginx_config_test
+  when: not ansible_check_mode
+
+- name: Report the configuration test result
+  ansible.builtin.assert:
+    that:
+      - "'syntax is ok' in _nginx_config_test.stderr"
+      - "'test is successful' in _nginx_config_test.stderr"
+    fail_msg: "nginx rejected the assembled configuration: {{ _nginx_config_test.stderr }}"
+    quiet: true
+  when: not ansible_check_mode
