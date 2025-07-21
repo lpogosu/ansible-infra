@@ -1,0 +1,8 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# `always` makes nginx emit the header on 4xx and 5xx responses too, which is
+# where a missing header is usually noticed.
+
+{% for name, value in nginx_security_headers | dictsort %}
+add_header {{ name }} "{{ value }}" always;
+{% endfor %}

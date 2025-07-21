@@ -1,0 +1,76 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+user {{ nginx_user }} {{ nginx_group }};
+worker_processes {{ nginx_worker_processes }};
+worker_rlimit_nofile {{ nginx_worker_rlimit_nofile }};
+pid {{ nginx_pid_file }};
+
+error_log {{ nginx_error_log }} {{ nginx_error_log_level }};
+
+{% if nginx_modules_include | length > 0 %}
+include {{ nginx_modules_include }};
+
+{% endif %}
+events {
+    worker_connections {{ nginx_worker_connections }};
+    multi_accept {{ 'on' if nginx_multi_accept else 'off' }};
+}
+
+http {
+    include {{ nginx_mime_types }};
+    default_type application/octet-stream;
+    charset utf-8;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    types_hash_max_size {{ nginx_types_hash_max_size }};
+    server_names_hash_bucket_size {{ nginx_server_names_hash_bucket_size }};
+    server_tokens {{ 'off' if nginx_hide_server_tokens else 'on' }};
+
+    keepalive_timeout {{ nginx_keepalive_timeout }};
+    keepalive_requests {{ nginx_keepalive_requests }};
+    client_max_body_size {{ nginx_client_max_body_size }};
+    client_body_timeout {{ nginx_client_body_timeout }};
+    client_header_timeout {{ nginx_client_header_timeout }};
+    send_timeout {{ nginx_send_timeout }};
+
+    log_format main '{{ nginx_log_format }}';
+    access_log {{ nginx_access_log }} main;
+
+{% for zone in nginx_limit_req_zones %}
+    limit_req_zone {{ zone.key }} zone={{ zone.name }}:{{ zone.size }} rate={{ zone.rate }};
+{% endfor %}
+{% for zone in nginx_limit_conn_zones %}
+    limit_conn_zone {{ zone.key }} zone={{ zone.name }}:{{ zone.size }};
+{% endfor %}
+    # 429 is the honest answer to a client that is going too fast; nginx
+    # defaults to 503, which monitoring reads as "the backend is down".
+    limit_req_status {{ nginx_limit_req_status }};
+    limit_conn_status {{ nginx_limit_conn_status }};
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 5;
+    gzip_min_length 512;
+    gzip_types application/javascript application/json application/xml image/svg+xml text/css text/plain text/xml;
+
+    # Proxy defaults shared by every vhost that forwards upstream.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+    proxy_buffering on;
+    proxy_buffers 16 16k;
+    proxy_busy_buffers_size 64k;
+
+    include {{ nginx_config_dir }}/conf.d/*.conf;
+}
