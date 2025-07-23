@@ -1,0 +1,135 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+# Virtual host: {{ vhost.name }}
+
+{% set tls = vhost.tls | default({}) %}
+{% set tls_enabled = tls.enabled | default(false) %}
+{% set http_port = vhost.listen_port | default(80) %}
+{% set https_port = tls.port | default(443) %}
+{% set default_server = ' default_server' if vhost.default_server | default(false) else '' %}
+{% if vhost.upstream is defined %}
+upstream {{ vhost.upstream.name }} {
+{% for server in vhost.upstream.servers %}
+    server {{ server.address }}{{ ' ' ~ server.options if server.options is defined else '' }};
+{% endfor %}
+{% if vhost.upstream.keepalive is defined %}
+    keepalive {{ vhost.upstream.keepalive }};
+{% endif %}
+}
+
+{% endif %}
+{% if tls_enabled and tls.redirect_http | default(true) %}
+# Plain HTTP exists only to send clients to the TLS port.
+server {
+    listen {{ http_port }}{{ default_server }};
+{% if nginx_listen_ipv6 %}
+    listen [::]:{{ http_port }}{{ default_server }};
+{% endif %}
+    server_name {{ vhost.server_name | join(' ') }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 308 https://$host$request_uri;
+    }
+}
+
+{% endif %}
+server {
+{% if tls_enabled %}
+{% if nginx_version is version('1.25.1', '>=') %}
+    listen {{ https_port }} ssl{{ default_server }};
+{% if nginx_listen_ipv6 %}
+    listen [::]:{{ https_port }} ssl{{ default_server }};
+{% endif %}
+    http2 on;
+{% else %}
+    {# `http2` as a standalone directive only exists from 1.25.1; before that
+       it is a listen parameter, and using the wrong form is a hard error. #}
+    listen {{ https_port }} ssl http2{{ default_server }};
+{% if nginx_listen_ipv6 %}
+    listen [::]:{{ https_port }} ssl http2{{ default_server }};
+{% endif %}
+{% endif %}
+{% else %}
+    listen {{ http_port }}{{ default_server }};
+{% if nginx_listen_ipv6 %}
+    listen [::]:{{ http_port }}{{ default_server }};
+{% endif %}
+{% endif %}
+    server_name {{ vhost.server_name | join(' ') }};
+
+{% if tls_enabled %}
+    ssl_certificate {{ tls.certificate }};
+    ssl_certificate_key {{ tls.certificate_key }};
+{% if tls.trusted_certificate is defined %}
+    ssl_trusted_certificate {{ tls.trusted_certificate }};
+{% endif %}
+    include {{ nginx_config_dir }}/snippets/ssl-params.conf;
+{% if tls.hsts | default(true) %}
+    add_header Strict-Transport-Security "{{ nginx_hsts_value }}" always;
+{% endif %}
+{% endif %}
+    include {{ nginx_config_dir }}/snippets/security-headers.conf;
+
+{% if vhost.root is defined %}
+    root {{ vhost.root }};
+    index {{ vhost.index | default(['index.html']) | join(' ') }};
+{% endif %}
+{% if vhost.client_max_body_size is defined %}
+    client_max_body_size {{ vhost.client_max_body_size }};
+{% endif %}
+{% if vhost.access_log is defined %}
+    access_log {{ vhost.access_log }} main;
+{% endif %}
+{% if vhost.error_log is defined %}
+    error_log {{ vhost.error_log }} {{ nginx_error_log_level }};
+{% endif %}
+{% if vhost.rate_limit is defined %}
+    limit_req zone={{ vhost.rate_limit.zone }}{{ ' burst=' ~ vhost.rate_limit.burst if vhost.rate_limit.burst is defined else '' }}{{ ' nodelay' if vhost.rate_limit.nodelay | default(false) else '' }};
+{% endif %}
+{% if vhost.limit_conn is defined %}
+    limit_conn {{ vhost.limit_conn.zone }} {{ vhost.limit_conn.limit }};
+{% endif %}
+
+    # Dotfiles are never content. The lookahead keeps /.well-known reachable,
+    # which a plain `location ~ /\.` would block along with ACME renewals.
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+
+{% for location in vhost.locations | default([]) %}
+    location {{ location.path }} {
+{% if location.limit_req is defined %}
+        limit_req zone={{ location.limit_req.zone }}{{ ' burst=' ~ location.limit_req.burst if location.limit_req.burst is defined else '' }}{{ ' nodelay' if location.limit_req.nodelay | default(false) else '' }};
+{% endif %}
+{% if location.limit_conn is defined %}
+        limit_conn {{ location.limit_conn.zone }} {{ location.limit_conn.limit }};
+{% endif %}
+{% if location.return is defined %}
+        return {{ location.return }};
+{% endif %}
+{% if location.root is defined %}
+        root {{ location.root }};
+{% endif %}
+{% if location.alias is defined %}
+        alias {{ location.alias }};
+{% endif %}
+{% if location.try_files is defined %}
+        try_files {{ location.try_files }};
+{% endif %}
+{% if location.proxy_pass is defined %}
+        proxy_pass {{ location.proxy_pass }};
+{% endif %}
+{% for directive in location.extra | default([]) %}
+        {{ directive }}
+{% endfor %}
+    }
+
+{% endfor %}
+{% for directive in vhost.extra_config | default([]) %}
+    {{ directive }}
+{% endfor %}
+}
