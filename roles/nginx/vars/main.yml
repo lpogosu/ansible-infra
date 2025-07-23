@@ -1,0 +1,8 @@
+---
+# `enabled` is optional on a vhost entry and defaults to true. Splitting the
+# list once here keeps that rule in a single place instead of repeating a
+# selectattr chain in every task that walks the vhosts.
+nginx_enabled_vhosts: >-
+  {{ (nginx_vhosts | rejectattr('enabled', 'defined') | list)
+     + (nginx_vhosts | selectattr('enabled', 'defined') | selectattr('enabled') | list) }}
+nginx_disabled_vhosts: "{{ nginx_vhosts | selectattr('enabled', 'defined') | rejectattr('enabled') | list }}"

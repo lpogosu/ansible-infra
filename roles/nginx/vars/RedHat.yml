@@ -1,0 +1,16 @@
+---
+nginx_packages:
+  - nginx
+nginx_user: nginx
+nginx_group: nginx
+nginx_service_name: nginx
+nginx_config_dir: /etc/nginx
+nginx_binary: /usr/sbin/nginx
+nginx_pid_file: /run/nginx.pid
+nginx_mime_types: /etc/nginx/mime.types
+nginx_default_vhost_files:
+  - /etc/nginx/conf.d/default.conf
+# Replacing nginx.conf wholesale would otherwise drop the module loader that
+# the distribution's nginx-mod-* packages rely on. The value is a glob, so an
+# empty or missing directory is not an error.
+nginx_modules_include: /usr/share/nginx/modules/*.conf
