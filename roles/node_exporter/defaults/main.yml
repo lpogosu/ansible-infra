@@ -1,0 +1,93 @@
+---
+# ---------------------------------------------------------------------------
+# Version and integrity.
+#
+# The binary is pinned and verified: distribution packages lag the upstream
+# release by a year or more, and an unverified download from GitHub is a
+# supply-chain hole. The checksums below are the ones published in
+# `sha256sums.txt` for the tagged release.
+# ---------------------------------------------------------------------------
+node_exporter_version: "1.12.1"
+node_exporter_checksums:
+  amd64: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
+  arm64: ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
+node_exporter_architecture_map:
+  x86_64: amd64
+  aarch64: arm64
+node_exporter_architecture: "{{ node_exporter_architecture_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+node_exporter_release_name: "node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_architecture }}"
+node_exporter_download_url: >-
+  https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/{{ node_exporter_release_name }}.tar.gz
+node_exporter_download_timeout: 60
+
+# ---------------------------------------------------------------------------
+# Filesystem layout.
+# Releases are unpacked into a versioned directory so that changing the version
+# variable produces a genuinely different artefact rather than an in-place
+# overwrite that no checksum would catch.
+# ---------------------------------------------------------------------------
+node_exporter_archive_dir: /usr/local/src
+node_exporter_release_dir: /opt/node_exporter
+node_exporter_binary_path: /usr/local/bin/node_exporter
+node_exporter_state_dir: /var/lib/node_exporter
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile_collector
+
+# ---------------------------------------------------------------------------
+# Service account. No login shell, no home directory, no password.
+# ---------------------------------------------------------------------------
+node_exporter_user: node_exporter
+node_exporter_group: node_exporter
+
+# ---------------------------------------------------------------------------
+# Runtime.
+#
+# The default listen address is loopback: node_exporter publishes the host's
+# entire inventory, and exposing it on 0.0.0.0 without a firewall in front is a
+# reconnaissance gift. Set the address explicitly when Prometheus scrapes it
+# across the network.
+# ---------------------------------------------------------------------------
+node_exporter_listen_address: "127.0.0.1:9100"
+node_exporter_telemetry_path: /metrics
+node_exporter_log_level: info
+node_exporter_log_format: logfmt
+# The `systemd` collector is deliberately absent: it talks to
+# /run/systemd/private, which needs root and a writable /run, and enabling it
+# would mean giving up ProtectSystem=strict for a handful of unit-state series.
+# Collect those with a textfile script instead if they are needed.
+node_exporter_collectors_enabled:
+  - processes
+  - textfile
+node_exporter_collectors_disabled:
+  - arp
+  - bcache
+  - infiniband
+  - ipvs
+  - mdadm
+  - nfs
+  - nfsd
+  - zfs
+node_exporter_extra_args: []
+
+node_exporter_service_state: started
+node_exporter_service_enabled: true
+node_exporter_restart_sec: 5
+
+# ---------------------------------------------------------------------------
+# systemd sandbox.
+# Exposed as variables because a collector that needs more access (for example
+# an NVMe collector reading /dev) has to be able to widen exactly one setting
+# instead of forcing the unit to be replaced wholesale.
+# ---------------------------------------------------------------------------
+node_exporter_protect_system: strict
+# `read-only` rather than `yes`: with /home masked by a tmpfs the filesystem
+# collector would report the size of the mask instead of the real mount.
+node_exporter_protect_home: read-only
+node_exporter_private_devices: true
+node_exporter_memory_deny_write_execute: true
+node_exporter_system_call_filter: "@system-service"
+node_exporter_restrict_address_families:
+  - AF_INET
+  - AF_INET6
+  - AF_UNIX
+node_exporter_read_write_paths:
+  - /var/lib/node_exporter
