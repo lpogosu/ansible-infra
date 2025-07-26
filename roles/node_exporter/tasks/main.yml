@@ -1,0 +1,29 @@
+---
+- name: Verify that a checksum is known for this architecture
+  ansible.builtin.assert:
+    that:
+      - node_exporter_architecture in node_exporter_checksums
+    fail_msg: >-
+      No published checksum for architecture {{ node_exporter_architecture }};
+      add it to node_exporter_checksums rather than installing unverified.
+    quiet: true
+  tags:
+    - always
+
+- name: Create the service account
+  ansible.builtin.include_tasks: user.yml
+  tags:
+    - node_exporter
+    - node_exporter-user
+
+- name: Install the pinned release
+  ansible.builtin.include_tasks: install.yml
+  tags:
+    - node_exporter
+    - node_exporter-install
+
+- name: Install the systemd unit
+  ansible.builtin.include_tasks: service.yml
+  tags:
+    - node_exporter
+    - node_exporter-service

@@ -1,0 +1,45 @@
+---
+- name: Create the download and release directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ node_exporter_archive_dir }}"
+    - "{{ node_exporter_release_dir }}"
+
+# `checksum:` makes get_url fail — and leave nothing behind — when the bytes do
+# not match the published digest, which is the whole point of pinning a version
+# instead of installing a distribution package.
+- name: Download the pinned node_exporter release
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_download_url }}"
+    dest: "{{ node_exporter_archive_dir }}/{{ node_exporter_release_name }}.tar.gz"
+    checksum: "sha256:{{ node_exporter_checksums[node_exporter_architecture] }}"
+    timeout: "{{ node_exporter_download_timeout }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unpack the release into its versioned directory
+  ansible.builtin.unarchive:
+    src: "{{ node_exporter_archive_dir }}/{{ node_exporter_release_name }}.tar.gz"
+    dest: "{{ node_exporter_release_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ node_exporter_release_dir }}/{{ node_exporter_release_name }}/node_exporter"
+
+# Copying rather than symlinking keeps the previous release on disk: a rollback
+# is a variable change, not another download.
+- name: Install the binary
+  ansible.builtin.copy:
+    src: "{{ node_exporter_release_dir }}/{{ node_exporter_release_name }}/node_exporter"
+    dest: "{{ node_exporter_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart node_exporter
