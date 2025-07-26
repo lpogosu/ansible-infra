@@ -1,0 +1,142 @@
+---
+- name: Verify
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  vars:
+    node_exporter_verify_version: "1.12.1"
+    node_exporter_verify_sandbox_properties:
+      NoNewPrivileges: "yes"
+      ProtectSystem: strict
+      ProtectHome: read-only
+      PrivateTmp: "yes"
+      ProtectKernelTunables: "yes"
+      ProtectKernelModules: "yes"
+      ProtectControlGroups: "yes"
+      RestrictRealtime: "yes"
+      LockPersonality: "yes"
+      MemoryDenyWriteExecute: "yes"
+      User: node_exporter
+  tasks:
+    - name: Ask the installed binary for its version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/node_exporter --version
+      changed_when: false
+      register: node_exporter_verify_binary
+
+    # Which stream `--version` lands on has changed between node_exporter
+    # releases, so both are searched.
+    - name: Assert that the pinned version is the one installed
+      ansible.builtin.assert:
+        that:
+          - (node_exporter_verify_binary.stdout ~ node_exporter_verify_binary.stderr) is search('node_exporter, version ' ~ node_exporter_verify_version)
+        fail_msg: "unexpected node_exporter build: {{ node_exporter_verify_binary.stdout }}{{ node_exporter_verify_binary.stderr }}"
+
+    - name: Read the service account from the passwd database
+      ansible.builtin.getent:
+        database: passwd
+        key: node_exporter
+
+    - name: Assert that the account cannot be logged into
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['getent_passwd']['node_exporter'][5] is search('nologin')
+          - ansible_facts['getent_passwd']['node_exporter'][1] | int < 1000
+        fail_msg: "the node_exporter account is not a locked system account"
+
+    # The properties come from systemd itself, not from the rendered template:
+    # a directive that systemd silently ignored would still be in the file.
+    #
+    # Asked property by property rather than through systemd_service: that module
+    # returns only part of the unit's properties, so CapabilityBoundingSet came
+    # back missing and the assertion failed on a lookup instead of on a value.
+    # That is why command-instead-of-module is waived on the three tasks below.
+    - name: Read the unit state from systemd  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl show node_exporter --property=ActiveState --value
+      changed_when: false
+      register: node_exporter_verify_state
+
+    - name: Read the capability bounding set from systemd  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl show node_exporter --property=CapabilityBoundingSet --value
+      changed_when: false
+      register: node_exporter_verify_caps
+
+    - name: Assert that the unit is running with no capabilities
+      ansible.builtin.assert:
+        that:
+          - node_exporter_verify_state.stdout == 'active'
+          - node_exporter_verify_caps.stdout == ''
+        fail_msg: >-
+          unit is '{{ node_exporter_verify_state.stdout }}' with capabilities
+          '{{ node_exporter_verify_caps.stdout }}'
+
+    - name: Read each sandbox property from systemd  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl show node_exporter --property={{ item.key }} --value
+      changed_when: false
+      register: node_exporter_verify_props
+      loop: "{{ node_exporter_verify_sandbox_properties | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Assert that every sandbox setting took effect
+      ansible.builtin.assert:
+        that:
+          - item.stdout == item.item.value
+        fail_msg: "{{ item.item.key }} is '{{ item.stdout }}', expected '{{ item.item.value }}'"
+      loop: "{{ node_exporter_verify_props.results }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+
+    - name: Stat the textfile collector directory
+      ansible.builtin.stat:
+        path: /var/lib/node_exporter/textfile_collector
+      register: node_exporter_verify_textfile_dir
+
+    - name: Assert that the textfile collector directory is writable by the group
+      ansible.builtin.assert:
+        that:
+          - node_exporter_verify_textfile_dir.stat.isdir
+          - node_exporter_verify_textfile_dir.stat.pw_name == 'node_exporter'
+          - node_exporter_verify_textfile_dir.stat.mode == '0775'
+        fail_msg: "the textfile collector directory is missing or has the wrong ownership"
+
+    - name: Drop a metric into the textfile collector
+      ansible.builtin.copy:
+        content: |
+          # HELP molecule_probe A metric written by the molecule verifier.
+          # TYPE molecule_probe gauge
+          molecule_probe 1
+        dest: /var/lib/node_exporter/textfile_collector/molecule.prom
+        owner: node_exporter
+        group: node_exporter
+        mode: "0644"
+
+    - name: Scrape the exporter
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9100/metrics
+        return_content: true
+        status_code:
+          - 200
+      register: node_exporter_verify_scrape
+
+    - name: Assert that core and textfile metrics are both served
+      ansible.builtin.assert:
+        that:
+          - "'node_cpu_seconds_total' in node_exporter_verify_scrape.content"
+          - "'node_filesystem_size_bytes' in node_exporter_verify_scrape.content"
+          - "'molecule_probe 1' in node_exporter_verify_scrape.content"
+          - "'node_scrape_collector_success' in node_exporter_verify_scrape.content"
+        fail_msg: "the exporter is not serving the expected collectors"
+
+    - name: Assert that the disabled collectors are not reporting
+      ansible.builtin.assert:
+        that:
+          - "'node_scrape_collector_success{collector=\"nfs\"}' not in node_exporter_verify_scrape.content"
+          - "'node_scrape_collector_success{collector=\"zfs\"}' not in node_exporter_verify_scrape.content"
+        fail_msg: "a collector that should be disabled is still registered"
