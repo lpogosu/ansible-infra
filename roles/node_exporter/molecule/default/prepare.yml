@@ -1,0 +1,17 @@
+---
+- name: Prepare
+  hosts: all
+  # No escalation under molecule: the docker connection already lands as root.
+  # Asking for sudo here fails at fact gathering, because PAM in a container
+  # that is still booting answers "cannot retrieve authentication info".
+  # The roles carry no task-level become, so this changes nothing they do.
+  gather_facts: true
+  tasks:
+    # The base images ship without an apt index, so the role's own package
+    # installs during converge would fail with "No package matching ...".
+    - name: Refresh the apt cache on Debian-family hosts
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      changed_when: false
