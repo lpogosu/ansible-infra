@@ -1,0 +1,66 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+
+[Unit]
+Description=Prometheus node exporter {{ node_exporter_version }}
+Documentation=https://github.com/prometheus/node_exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ node_exporter_user }}
+Group={{ node_exporter_group }}
+ExecStart={{ node_exporter_binary_path }} \
+    --web.listen-address={{ node_exporter_listen_address }} \
+    --web.telemetry-path={{ node_exporter_telemetry_path }} \
+    --log.level={{ node_exporter_log_level }} \
+    --log.format={{ node_exporter_log_format }} \
+{% for collector in node_exporter_collectors_enabled | sort %}
+    --collector.{{ collector }} \
+{% endfor %}
+{% for collector in node_exporter_collectors_disabled | sort %}
+    --no-collector.{{ collector }} \
+{% endfor %}
+{% for argument in node_exporter_extra_args %}
+    {{ argument }} \
+{% endfor %}
+    --collector.textfile.directory={{ node_exporter_textfile_dir }}
+Restart=on-failure
+RestartSec={{ node_exporter_restart_sec }}
+TimeoutStopSec=20
+
+# --- sandbox -------------------------------------------------------------
+# node_exporter reads /proc and /sys and writes nothing outside its state
+# directory, so almost everything can be taken away from it.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem={{ node_exporter_protect_system }}
+ProtectHome={{ node_exporter_protect_home }}
+ProtectProc=default
+ProcSubset=all
+PrivateTmp=true
+PrivateDevices={{ 'true' if node_exporter_private_devices else 'false' }}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies={{ node_exporter_restrict_address_families | join(' ') }}
+LockPersonality=true
+MemoryDenyWriteExecute={{ 'true' if node_exporter_memory_deny_write_execute else 'false' }}
+SystemCallArchitectures=native
+SystemCallFilter={{ node_exporter_system_call_filter }}
+SystemCallErrorNumber=EPERM
+{% for path in node_exporter_read_write_paths %}
+ReadWritePaths={{ path }}
+{% endfor %}
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
