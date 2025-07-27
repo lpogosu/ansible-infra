@@ -1,0 +1,125 @@
+---
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PY_COLORS: "1"
+  ANSIBLE_FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: yamllint and ansible-lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Install the collections the roles depend on
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Run yamllint
+        run: yamllint --strict .
+
+      - name: Run ansible-lint
+        run: ansible-lint
+
+  syntax:
+    name: playbook syntax
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Install the collections the roles depend on
+        run: ansible-galaxy collection install -r requirements.yml
+
+      # The inventories reference vault variables that are not in the
+      # repository; a placeholder file keeps --syntax-check honest without
+      # inventing secrets.
+      - name: Provide placeholder vault variables
+        run: |
+          for env in dev prod; do
+            cp "inventories/$env/group_vars/vault.example.yml" \
+               "inventories/$env/group_vars/vault.yml"
+          done
+
+      - name: Parse every playbook
+        run: |
+          for playbook in playbooks/*.yml; do
+            echo "==> $playbook"
+            ansible-playbook -i inventories/dev/hosts.yml --syntax-check "$playbook"
+            ansible-playbook -i inventories/prod/hosts.yml --syntax-check "$playbook"
+          done
+
+  molecule:
+    name: molecule (${{ matrix.role }})
+    runs-on: ubuntu-24.04
+    needs:
+      - lint
+    strategy:
+      fail-fast: false
+      matrix:
+        role:
+          - baseline
+          - docker_host
+          - nginx
+          - haproxy
+          - node_exporter
+          - backup
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the tooling
+        run: pip install -r requirements-dev.txt
+
+      # Molecule's own dependency step resolves the requirements path relative to
+      # the scenario directory and cannot see a file four levels up, so it reports
+      # the collections as missing and carries on. Installing them here is what
+      # actually puts community.docker and ansible.posix on the box.
+      - name: Install the collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Run the scenario
+        working-directory: roles/${{ matrix.role }}
+        run: molecule test
