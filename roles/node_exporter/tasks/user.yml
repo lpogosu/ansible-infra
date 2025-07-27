@@ -1,0 +1,30 @@
+---
+- name: Create the node_exporter group
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    system: true
+    state: present
+
+- name: Create the node_exporter system account
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ node_exporter_state_dir }}"
+    create_home: false
+    password_lock: true
+    state: present
+
+- name: Create the state and textfile collector directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    # Group-writable so that a cron job running as another service account can
+    # drop a .prom file after being added to the node_exporter group.
+    mode: "0775"
+  loop:
+    - "{{ node_exporter_state_dir }}"
+    - "{{ node_exporter_textfile_dir }}"
